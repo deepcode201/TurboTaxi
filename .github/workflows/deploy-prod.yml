@@ -2,7 +2,7 @@ name: Deploy PROD
 
 on:
   push:
-    branches: ["main"]
+    branches: ["prod"]
   workflow_dispatch: {}   
 
 concurrency:
@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: prod
 
       - name: Prepare temp dir
         id: prep
