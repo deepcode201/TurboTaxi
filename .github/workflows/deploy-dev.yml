@@ -1,9 +1,7 @@
-name: Deploy DEV
+name: Deploy DEV (manual)
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ "develop" ]
 
 concurrency:
   group: deploy-dev
@@ -14,37 +12,57 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - name: Checkout develop
+      - name: Checkout develop branch
         uses: actions/checkout@v4
         with:
           ref: develop
 
-      - name: Prepare temp dir
+      - name: Prepare temp directory
         id: prep
+        shell: bash
         run: |
+          set -euo pipefail
           DIR="/tmp/turbotaxi-dev"
-          echo "DIR=$DIR" >> "$GITHUB_OUTPUT"
+          echo "DIR=$DIR" >> $GITHUB_OUTPUT
           mkdir -p "$DIR"
+          echo "[INFO] Using $DIR"
 
-      - name: Copy files
+      - name: Copy project files
+        shell: bash
         run: |
-          rsync -a --delete --exclude ".git" \
+          set -euo pipefail
+          rsync -a --delete \
+            --exclude ".git" \
             "$GITHUB_WORKSPACE/" "${{ steps.prep.outputs.DIR }}/"
 
-      - name: Write DEV .env from Secret
+      - name: Write DEV .env from GitHub Secret
         working-directory: ${{ steps.prep.outputs.DIR }}
+        shell: bash
         run: |
+          set -euo pipefail
           cat > .env <<'EOF'
 ${{ secrets.DEV_ENV_FILE }}
 EOF
+          echo "[INFO] .env written"
 
-      - name: Deploy DEV
+      - name: Deploy DEV container
         working-directory: ${{ steps.prep.outputs.DIR }}
+        shell: bash
         run: |
+          set -euo pipefail
+
+          echo "[INFO] Stopping old DEV containers..."
           docker compose -p turbotaxi-dev -f docker-compose.dev.yml down -v || true
+
+          echo "[INFO] Building and starting DEV..."
           docker compose -p turbotaxi-dev -f docker-compose.dev.yml up -d --build
+
+          echo "[INFO] Container status:"
           docker compose -p turbotaxi-dev -f docker-compose.dev.yml ps
 
-      - name: Cleanup
+      - name: Cleanup temp directory
         if: always()
-        run: rm -rf "${{ steps.prep.outputs.DIR }}"
+        shell: bash
+        run: |
+          rm -rf "${{ steps.prep.outputs.DIR }}"
+          echo "[INFO] Cleanup done"
