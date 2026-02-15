@@ -1,0 +1,47 @@
+name: Deploy DEV 
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop  
+
+      - name: Prepare temp dir
+        id: prep
+        run: |
+          DIR="/tmp/turbotaxi-dev"
+          echo "DIR=$DIR" >> $GITHUB_OUTPUT
+          mkdir -p "$DIR"
+
+      - name: Copy files
+        run: |
+          rsync -a --delete --exclude ".git" \
+            "$GITHUB_WORKSPACE/" "${{ steps.prep.outputs.DIR }}/"
+
+      - name: Write DEV .env from Secret
+        working-directory: ${{ steps.prep.outputs.DIR }}
+        run: |
+          cat > .env <<EOF
+${{ secrets.DEV_ENV_FILE }}
+EOF
+
+      - name: Deploy DEV
+        working-directory: ${{ steps.prep.outputs.DIR }}
+        run: |
+          docker compose -p turbotaxi-dev -f docker-compose.dev.yml down -v || true
+          docker compose -p turbotaxi-dev -f docker-compose.dev.yml up -d --build
+          docker compose -p turbotaxi-dev -f docker-compose.dev.yml ps
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "${{ steps.prep.outputs.DIR }}"
