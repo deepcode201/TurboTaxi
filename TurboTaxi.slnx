@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="docker-compose.yml" />
+  </Folder>
+  <Project Path="TurboTaxi.API/TurboTaxi.API.csproj" />
+  <Project Path="TurboTaxi.Application/TurboTaxi.Application.csproj" />
+  <Project Path="TurboTaxi.Domain/TurboTaxi.Domain.csproj" />
+  <Project Path="TurboTaxi.Infrastructure/TurboTaxi.Infrastructure.csproj" />
+  <Project Path="TurboTaxi.Models/TurboTaxi.Models.csproj" Id="0ff1c1c6-8a93-431d-807a-6c429871a2e1" />
+  <Project Path="TurboTaxi.Realtime/TurboTaxi.Realtime.csproj" />
+</Solution>
