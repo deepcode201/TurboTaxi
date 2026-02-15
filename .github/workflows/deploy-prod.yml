@@ -1,0 +1,47 @@
+name: Deploy PROD 
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main  
+
+      - name: Prepare temp dir
+        id: prep
+        run: |
+          DIR="/tmp/turbotaxi-prod"
+          echo "DIR=$DIR" >> $GITHUB_OUTPUT
+          mkdir -p "$DIR"
+
+      - name: Copy files
+        run: |
+          rsync -a --delete --exclude ".git" \
+            "$GITHUB_WORKSPACE/" "${{ steps.prep.outputs.DIR }}/"
+
+      - name: Write PROD .env from Secret
+        working-directory: ${{ steps.prep.outputs.DIR }}
+        run: |
+          cat > .env <<EOF
+${{ secrets.ENV_FILE }}
+EOF
+
+      - name: Deploy PROD
+        working-directory: ${{ steps.prep.outputs.DIR }}
+        run: |
+          docker compose -p turbotaxi-prod -f docker-compose.prod.yml down || true
+          docker compose -p turbotaxi-prod -f docker-compose.prod.yml up -d --build
+          docker compose -p turbotaxi-prod -f docker-compose.prod.yml ps
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "${{ steps.prep.outputs.DIR }}"
