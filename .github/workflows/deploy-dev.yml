@@ -1,7 +1,9 @@
-name: Deploy DEV 
+name: Deploy DEV
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ "develop" ]
 
 concurrency:
   group: deploy-dev
@@ -12,15 +14,16 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout develop
+        uses: actions/checkout@v4
         with:
-          ref: develop  
+          ref: develop
 
       - name: Prepare temp dir
         id: prep
         run: |
           DIR="/tmp/turbotaxi-dev"
-          echo "DIR=$DIR" >> $GITHUB_OUTPUT
+          echo "DIR=$DIR" >> "$GITHUB_OUTPUT"
           mkdir -p "$DIR"
 
       - name: Copy files
@@ -31,7 +34,7 @@ jobs:
       - name: Write DEV .env from Secret
         working-directory: ${{ steps.prep.outputs.DIR }}
         run: |
-          cat > .env <<EOF
+          cat > .env <<'EOF'
 ${{ secrets.DEV_ENV_FILE }}
 EOF
 
