@@ -26,7 +26,10 @@ namespace TurboTaxi.API.Controllers
 
         [HttpPost]
         public async Task<ActionResult<VehicleDto>> Create([FromBody] VehicleCreateRequest request)
-            => Ok(await _mediator.Send(new CreateVehicleCommand(request)));
+        {
+            var result = await _mediator.Send(new CreateVehicleCommand(request));
+            return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
+        }
 
         // Id only in body now
         [HttpPut]

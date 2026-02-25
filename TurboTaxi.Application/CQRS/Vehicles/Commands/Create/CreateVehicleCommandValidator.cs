@@ -1,4 +1,5 @@
 using FluentValidation;
+using TurboTaxi.Domain.Enums;
 
 namespace TurboTaxi.Application.CQRS.Vehicles.Commands.Create
 {
@@ -11,7 +12,7 @@ namespace TurboTaxi.Application.CQRS.Vehicles.Commands.Create
             RuleFor(x => x.Request.Model).NotEmpty().MaximumLength(50);
             RuleFor(x => x.Request.Color).NotEmpty().MaximumLength(30);
             RuleFor(x => x.Request.Year).InclusiveBetween(1980, DateTime.UtcNow.Year + 1);
-            RuleFor(x => x.Request.VehicleType).NotEmpty();
+            RuleFor(x => x.Request.VehicleType).IsInEnum();
         }
     }
 }

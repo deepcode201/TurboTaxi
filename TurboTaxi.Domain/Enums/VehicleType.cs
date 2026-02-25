@@ -1,15 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace TurboTaxi.Domain.Enums
+﻿namespace TurboTaxi.Domain.Enums
 {
     public enum VehicleType
     {
-        Standard = 0,
-        Comfort = 1,
-        Business = 2,
-        Van = 3
+        Eco      = 0,
+        Business = 1,
+        XL       = 2,
+        Delivery = 3
     }
-
 }

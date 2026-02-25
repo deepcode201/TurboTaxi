@@ -6,7 +6,7 @@ namespace TurboTaxi.Models.Rides
         public double PickupLng { get; set; }
         public double? DestinationLat { get; set; }
         public double? DestinationLng { get; set; }
-        public string VehicleType { get; set; } = "Standard";
+        public string VehicleType { get; set; } = "Eco";
         public int UserId { get; set; }
     }
 

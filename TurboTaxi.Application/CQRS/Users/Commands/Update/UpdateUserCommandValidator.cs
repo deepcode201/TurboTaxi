@@ -7,7 +7,8 @@ namespace TurboTaxi.Application.CQRS.Users.Commands.Update
         public UpdateUserCommandValidator()
         {
             RuleFor(x => x.Id).GreaterThan(0);
-            RuleFor(x => x.FullName).NotEmpty().MaximumLength(150);
+            RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
+            RuleFor(x => x.Surname).NotEmpty().MaximumLength(100);
             RuleFor(x => x.Email).NotEmpty().EmailAddress();
             RuleFor(x => x.PhoneNumber).NotEmpty().MinimumLength(7).MaximumLength(20);
         }

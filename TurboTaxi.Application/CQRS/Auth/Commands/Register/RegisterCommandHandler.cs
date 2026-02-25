@@ -12,7 +12,8 @@ namespace TurboTaxi.Application.CQRS.Auth.Commands.Register
         {
             var dto = new RegisterRequest
             {
-                FullName = request.FullName,
+                Name = request.Name,
+                Surname = request.Surname,
                 PhoneNumber = request.PhoneNumber,
                 Email = request.Email,
                 Password = request.Password
