@@ -1,0 +1,6 @@
+@TurboTaxi.API_HostAddress = http://localhost:5078
+
+GET {{TurboTaxi.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
