@@ -1,5 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/launchsettings.json",
+<<<<<<< HEAD
   "iisSettings": {
     "windowsAuthentication": false,
     "anonymousAuthentication": true,
@@ -10,6 +11,10 @@
   },
   "profiles": {
     "TurboTaxi.API (Kestrel - Port 7443)": {
+=======
+  "profiles": {
+    "Development": {
+>>>>>>> origin/TestingBranch1
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": true,
@@ -18,6 +23,7 @@
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
     },
+<<<<<<< HEAD
     "TurboTaxi.API (Kestrel - Port 44327)": {
       "commandName": "Project",
       "dotnetRunMessages": true,
@@ -30,6 +36,13 @@
     "IIS Express": {
       "commandName": "IISExpress",
       "launchBrowser": true,
+=======
+    "Production": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://0.0.0.0:5000",
+>>>>>>> origin/TestingBranch1
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Production"
       }
