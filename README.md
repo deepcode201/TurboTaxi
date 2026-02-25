@@ -1,5 +1,6 @@
 # TurboTaxi React Native Client Integration Guide
 
+
 ## Project Overview
 
 TurboTaxi is a mobile ride-hailing solution. The React Native client interacts with a .NET REST API and a SignalR real-time backend to:
@@ -419,7 +420,7 @@ export function createDriverHubConnection(token?: string) {
 ## End-to-end Example Flows
 
 ### Create a ride and listen for status updates (User)
-1. REST: `POST /api/rides` with user’s pickup/destination and vehicle type.
+1. REST: `POST /api/rides` with userÂ’s pickup/destination and vehicle type.
 2. SignalR:
    - Connect to hub and `SubscribeUser(<userId>)`.
    - Listen for:
@@ -478,8 +479,8 @@ await finishRide(rideId, driverId, finalPrice);
 ## Error Handling & Troubleshooting
 
 REST:
-- 400 Bad Request: Invalid state transitions (e.g., starting a ride that isn’t approved), mismatched user/driver IDs.
-- 404 Not Found: Ride or driver doesn’t exist.
+- 400 Bad Request: Invalid state transitions (e.g., starting a ride that isnÂ’t approved), mismatched user/driver IDs.
+- 404 Not Found: Ride or driver doesnÂ’t exist.
 - 500 Internal Server Error: Unexpected server failures or database issues.
 
 SignalR:

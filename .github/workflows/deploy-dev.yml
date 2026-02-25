@@ -1,0 +1,81 @@
+name: Deploy DEV (self-hosted, temp dir)
+
+on:
+  push:
+    branches: ["develop"]
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: [self-hosted]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Preflight (whoami, docker, tools)
+        run: |
+          set -euo pipefail
+          whoami
+          id
+          docker --version
+          docker compose version
+          command -v rsync >/dev/null 2>&1 || echo "WARN: rsync not found (install it or replace with cp)"
+
+      - name: Create temp deploy directory
+        id: prep
+        run: |
+          set -euo pipefail
+          DIR="/tmp/turbotaxi-dev"
+          echo "DIR=$DIR" >> "$GITHUB_OUTPUT"
+          rm -rf "$DIR"
+          mkdir -p "$DIR"
+          echo "Using $DIR"
+
+      - name: Copy code into temp dir
+        run: |
+          set -euo pipefail
+          if command -v rsync >/dev/null 2>&1; then
+            rsync -a --delete \
+              --exclude ".git" \
+              "$GITHUB_WORKSPACE/" "${{ steps.prep.outputs.DIR }}/"
+          else
+            # Fallback
+            cp -a "$GITHUB_WORKSPACE/." "${{ steps.prep.outputs.DIR }}/"
+          fi
+
+      - name: Write .env from GitHub Secret (DEV_ENV_FILE)
+        working-directory: ${{ steps.prep.outputs.DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Secret-i olduğu kimi yazır (newline-lar qorunur)
+          printf '%s\n' "${{ secrets.DEV_ENV_FILE }}" > .env
+          chmod 600 .env
+          echo ".env written ($(wc -l < .env) lines)"
+
+      - name: Deploy DEV (down old, remove volumes, up new)
+        working-directory: ${{ steps.prep.outputs.DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "Files:"
+          ls -la
+          test -f docker-compose.dev.yml
+
+          # Köhnəni endir (DB sıfırlansın deyirsənsə -v qalır)
+          docker compose -p turbotaxi-dev -f docker-compose.dev.yml down -v || true
+
+          # Yeni build + start
+          docker compose -p turbotaxi-dev -f docker-compose.dev.yml up -d --build
+
+          docker ps
+          docker compose -p turbotaxi-dev -f docker-compose.dev.yml ps
+
+      - name: Cleanup temp directory
+        if: always()
+        run: |
+          rm -rf "${{ steps.prep.outputs.DIR }}"
