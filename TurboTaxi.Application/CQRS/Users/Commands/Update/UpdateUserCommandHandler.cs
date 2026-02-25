@@ -9,6 +9,6 @@ namespace TurboTaxi.Application.CQRS.Users.Commands.Update
         private readonly IUserCrudService _userCrudService;
         public UpdateUserCommandHandler(IUserCrudService userCrudService) => _userCrudService = userCrudService;
         public Task<UserListItemDto> Handle(UpdateUserCommand request, CancellationToken cancellationToken)
-            => _userCrudService.UpdateAsync(request.Id, request.FullName, request.PhoneNumber, request.Email, cancellationToken);
+            => _userCrudService.UpdateAsync(request.Id, request.Name, request.Surname, request.PhoneNumber, request.Email, cancellationToken);
     }
 }
