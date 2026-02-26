@@ -24,7 +24,8 @@ namespace TurboTaxi.Infrastructure.Services
             }
             var user = new User
             {
-                FullName = request.FullName,
+                Name = request.Name,
+                Surname = request.Surname,
                 Email = request.Email,
                 PhoneNumber = request.PhoneNumber,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password)
@@ -41,7 +42,8 @@ namespace TurboTaxi.Infrastructure.Services
                     User = new UserDto
                     {
                         Id = user.Id,
-                        FullName = user.FullName,
+                        Name = user.Name,
+                        Surname = user.Surname,
                         PhoneNumber = user.PhoneNumber,
                         Email = user.Email,
                         CreatedAt = user.CreatedTime
@@ -74,7 +76,8 @@ namespace TurboTaxi.Infrastructure.Services
                     User = new UserDto
                     {
                         Id = user.Id,
-                        FullName = user.FullName,
+                        Name = user.Name,
+                        Surname = user.Surname,
                         PhoneNumber = user.PhoneNumber,
                         Email = user.Email,
                         CreatedAt = user.CreatedTime

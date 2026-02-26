@@ -11,7 +11,7 @@ namespace TurboTaxi.Domain.Entities
         public string Color { get; set; } = null!;
         public int Year { get; set; }
 
-        public VehicleType VehicleType { get; set; } = VehicleType.Standard;
+        public VehicleType VehicleType { get; set; } = VehicleType.Eco;
 
         // Navigation
         public ICollection<Driver> Drivers { get; set; } = new List<Driver>();

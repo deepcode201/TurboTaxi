@@ -11,7 +11,7 @@ namespace TurboTaxi.Domain.Entities
         public string Country { get; set; } = "AZ";
         public string City { get; set; } = "Baku";
 
-        public VehicleType VehicleType { get; set; } = VehicleType.Standard;
+        public VehicleType VehicleType { get; set; } = VehicleType.Eco;
 
         // Əsas qiymətləndirmə parametrləri
         public decimal BaseFare { get; set; }           // açılış qiyməti

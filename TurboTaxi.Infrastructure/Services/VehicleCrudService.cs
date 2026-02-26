@@ -21,7 +21,7 @@ namespace TurboTaxi.Infrastructure.Services
                 Model = request.Model,
                 Color = request.Color,
                 Year = request.Year,
-                VehicleType = Enum.TryParse<VehicleType>(request.VehicleType, true, out var vt) ? vt : VehicleType.Standard
+                VehicleType = request.VehicleType
             };
             _db.Vehicles.Add(vehicle);
             await _db.SaveChangesAsync(ct);
@@ -37,7 +37,7 @@ namespace TurboTaxi.Infrastructure.Services
             vehicle.Model = request.Model;
             vehicle.Color = request.Color;
             vehicle.Year = request.Year;
-            vehicle.VehicleType = Enum.TryParse<VehicleType>(request.VehicleType, true, out var vt) ? vt : vehicle.VehicleType;
+            vehicle.VehicleType = request.VehicleType;
             vehicle.UpdatedTime = DateTime.UtcNow;
             await _db.SaveChangesAsync(ct);
             return Map(vehicle);
@@ -70,7 +70,7 @@ namespace TurboTaxi.Infrastructure.Services
                     Model = v.Model,
                     Color = v.Color,
                     Year = v.Year,
-                    VehicleType = v.VehicleType.ToString(),
+                    VehicleType = v.VehicleType,
                     CreatedAt = v.CreatedTime
                 }).ToListAsync(ct);
         }
@@ -83,7 +83,7 @@ namespace TurboTaxi.Infrastructure.Services
             Model = v.Model,
             Color = v.Color,
             Year = v.Year,
-            VehicleType = v.VehicleType.ToString(),
+            VehicleType = v.VehicleType,
             CreatedAt = v.CreatedTime
         };
     }

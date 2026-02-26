@@ -40,26 +40,36 @@ try
     {
         options.AddPolicy("AllowAll", policy =>
         {
+            var allowedOrigins = builder.Configuration
+                .GetSection("Cors:AllowedOrigins")
+                .Get<string[]>();
+
             if (builder.Environment.IsDevelopment())
             {
-                policy.WithOrigins(
-                    "https://localhost:7443", 
-                    "http://localhost:7442",
-                    "https://localhost:44327",
-                    "http://localhost:61149"
-                )
-                .AllowAnyHeader()
-                .AllowAnyMethod()
-                .AllowCredentials();
-                Console.WriteLine("[CORS] Development mode - localhost allowed");
-            }
-            else
-            {
+                // Development: tüm originlere izin ver (mobil geliştirici desteği)
                 policy.SetIsOriginAllowed(_ => true)
                       .AllowAnyHeader()
                       .AllowAnyMethod()
                       .AllowCredentials();
-                Console.WriteLine("[CORS] Production mode - all origins allowed");
+                Console.WriteLine("[CORS] Development mode - all origins allowed (mobile dev support)");
+            }
+            else if (allowedOrigins is { Length: > 0 })
+            {
+                // Production: appsettings.json'dan oku
+                policy.WithOrigins(allowedOrigins)
+                      .AllowAnyHeader()
+                      .AllowAnyMethod()
+                      .AllowCredentials();
+                Console.WriteLine($"[CORS] Production mode - {allowedOrigins.Length} origin(s) allowed");
+            }
+            else
+            {
+                // Production fallback: tüm originlere izin ver
+                policy.SetIsOriginAllowed(_ => true)
+                      .AllowAnyHeader()
+                      .AllowAnyMethod()
+                      .AllowCredentials();
+                Console.WriteLine("[CORS] Production mode - all origins allowed (no config)");
             }
         });
     });
