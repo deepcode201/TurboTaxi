@@ -131,7 +131,7 @@ namespace TurboTaxi.Infrastructure.Services
                 {
                     Origin = new Coordinate { Latitude = driverLat, Longitude = driverLng },
                     Destination = new Coordinate { Latitude = destLat, Longitude = destLng },
-                    VehicleType = ride.RequestedVehicleType.ToString()
+                    VehicleType = ride.RequestedVehicleType
                 };
 
                 var routeResponse = await _routeEstimation.EstimateAsync(routeRequest, ct);

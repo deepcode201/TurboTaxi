@@ -1,3 +1,5 @@
+using TurboTaxi.Domain.Enums;
+
 namespace TurboTaxi.Models.Vehicles
 {
     public class VehicleCreateRequest
@@ -7,7 +9,7 @@ namespace TurboTaxi.Models.Vehicles
         public string Model { get; set; } = null!;
         public string Color { get; set; } = null!;
         public int Year { get; set; }
-        public string VehicleType { get; set; } = null!; // enum name
+        public VehicleType VehicleType { get; set; }
     }
     public class VehicleUpdateRequest
     {
@@ -17,7 +19,7 @@ namespace TurboTaxi.Models.Vehicles
         public string Model { get; set; } = null!;
         public string Color { get; set; } = null!;
         public int Year { get; set; }
-        public string VehicleType { get; set; } = null!;
+        public VehicleType VehicleType { get; set; }
     }
     public class VehicleDto
     {
@@ -27,7 +29,7 @@ namespace TurboTaxi.Models.Vehicles
         public string Model { get; set; } = null!;
         public string Color { get; set; } = null!;
         public int Year { get; set; }
-        public string VehicleType { get; set; } = null!;
+        public VehicleType VehicleType { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 }

@@ -11,11 +11,12 @@ namespace TurboTaxi.Infrastructure.Services
         private readonly ApplicationDbContext _db;
         public UserCrudService(ApplicationDbContext db) => _db = db;
 
-        public async Task<UserListItemDto> UpdateAsync(int id, string fullName, string phoneNumber, string email, CancellationToken ct)
+        public async Task<UserListItemDto> UpdateAsync(int id, string name, string surname, string phoneNumber, string email, CancellationToken ct)
         {
             var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
             if (user is null) throw new KeyNotFoundException("User not found");
-            user.FullName = fullName;
+            user.Name = name;
+            user.Surname = surname;
             user.PhoneNumber = phoneNumber;
             user.Email = email;
             user.UpdatedTime = DateTime.UtcNow;
@@ -45,7 +46,8 @@ namespace TurboTaxi.Infrastructure.Services
                 .Select(u => new UserListItemDto
                 {
                     Id = u.Id,
-                    FullName = u.FullName,
+                    Name = u.Name,
+                    Surname = u.Surname,
                     PhoneNumber = u.PhoneNumber,
                     Email = u.Email,
                     CreatedAt = u.CreatedTime
@@ -55,7 +57,8 @@ namespace TurboTaxi.Infrastructure.Services
         private static UserListItemDto Map(User u) => new()
         {
             Id = u.Id,
-            FullName = u.FullName,
+            Name = u.Name,
+            Surname = u.Surname,
             PhoneNumber = u.PhoneNumber,
             Email = u.Email,
             CreatedAt = u.CreatedTime

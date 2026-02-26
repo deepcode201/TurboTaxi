@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\TurboTaxi.Domain\TurboTaxi.Domain.csproj" />
+  </ItemGroup>
+
 </Project>

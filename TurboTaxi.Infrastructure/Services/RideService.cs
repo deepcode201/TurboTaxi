@@ -115,7 +115,8 @@ namespace TurboTaxi.Infrastructure.Services
 
                     var newUser = new User
                     {
-                        FullName = $"Test User {request.UserId}",
+                        Name = "Test",
+                        Surname = $"User {request.UserId}",
                         PhoneNumber = $"+994{50 + request.UserId}{1000000 + request.UserId}",
                         Email = $"testuser{request.UserId}@turbotaxi.com",
                         PasswordHash = "TestPassword123!@#",
@@ -127,7 +128,7 @@ namespace TurboTaxi.Infrastructure.Services
                     await _db.SaveChangesAsync(ct);
                     request.UserId = newUser.Id;
 
-                    _logger.LogInformation($"? Test user #{newUser.Id} created: {newUser.FullName}");
+                    _logger.LogInformation($"? Test user #{newUser.Id} created: {newUser.Name} {newUser.Surname}");
                 }
 
                 // Create locations
@@ -142,7 +143,7 @@ namespace TurboTaxi.Infrastructure.Services
                     UserId = request.UserId,
                     StartLocationId = startLoc.Id,
                     EndLocationId = endLoc.Id,
-                    RequestedVehicleType = Enum.TryParse<VehicleType>(request.VehicleType, true, out var vt) ? vt : VehicleType.Standard,
+                    RequestedVehicleType = Enum.TryParse<VehicleType>(request.VehicleType, true, out var vt) ? vt : VehicleType.Eco,
                     Status = RideStatus.Pending,
                     RequestedTime = DateTime.UtcNow
                 };

@@ -14,7 +14,7 @@ namespace TurboTaxi.Domain.Entities
         public int EndLocationId { get; set; }
 
         // User hansı maşın tipini seçib (Standard / Comfort / Business və s.)
-        public VehicleType RequestedVehicleType { get; set; } = VehicleType.Standard;
+        public VehicleType RequestedVehicleType { get; set; } = VehicleType.Eco;
 
         // Bu ride hansı Tariff-ə görə hesablanıb
         public int? TariffId { get; set; }
