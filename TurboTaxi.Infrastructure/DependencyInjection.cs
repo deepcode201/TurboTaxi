@@ -14,7 +14,11 @@ namespace TurboTaxi.Infrastructure
             services.AddDbContext<ApplicationDbContext>(options =>
                 options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
 
-            services.AddHttpClient<IRouteEstimationService, RouteEstimationService>();
+            services.AddHttpClient<IRouteEstimationService, RouteEstimationService>(client =>
+            {
+                client.Timeout = TimeSpan.FromSeconds(15);
+                client.DefaultRequestHeaders.Add("User-Agent", "TurboTaxi/1.0");
+            });
             
             // Add memory cache for deduplication
             services.AddMemoryCache();
