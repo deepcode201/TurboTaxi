@@ -3,7 +3,7 @@ name: Deploy PROD
 on:
   push:
     branches: ["prod"]
-  workflow_dispatch: {}   
+  workflow_dispatch:
 
 concurrency:
   group: deploy-prod
@@ -14,7 +14,8 @@ jobs:
     runs-on: [self-hosted]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code (prod branch)
+        uses: actions/checkout@v4
         with:
           ref: prod
 
@@ -37,7 +38,6 @@ jobs:
         working-directory: ${{ steps.prep.outputs.DIR }}
         run: |
           set -euo pipefail
-          # Səndə indent/EOF problemi çıxmasın deyə belə yaz:
           printf '%s\n' "${{ secrets.ENV_FILE }}" > .env
           chmod 600 .env
 
@@ -48,11 +48,6 @@ jobs:
           docker compose -p turbotaxi-prod -f docker-compose.prod.yml down || true
           docker compose -p turbotaxi-prod -f docker-compose.prod.yml up -d --build
           docker compose -p turbotaxi-prod -f docker-compose.prod.yml ps
-
-      - name: Cleanup
-        if: always()
-        run: rm -rf "${{ steps.prep.outputs.DIR }}"
-
 
       - name: Cleanup
         if: always()
