@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using TurboTaxi.Application.Interfaces;
+using TurboTaxi.Domain.Enums;
 using TurboTaxi.Models.Routes;
 
 namespace TurboTaxi.API.Controllers
@@ -14,6 +15,20 @@ namespace TurboTaxi.API.Controllers
 
         [HttpPost("estimate")]
         public async Task<ActionResult<RouteEstimateResponse>> Estimate([FromBody] RouteEstimateRequest request)
-            => Ok(await _service.EstimateAsync(request));
+        {
+            if (!Enum.IsDefined(typeof(VehicleType), request.VehicleType))
+            {
+                var validValues = string.Join(", ", Enum.GetValues<VehicleType>()
+                    .Select(v => $"{(int)v} = {v}"));
+
+                return BadRequest(new RouteEstimateResponse
+                {
+                    Success = false,
+                    Message = $"Invalid VehicleType: '{(int)request.VehicleType}'. Valid values are: {validValues}"
+                });
+            }
+
+            return Ok(await _service.EstimateAsync(request));
+        }
     }
 }

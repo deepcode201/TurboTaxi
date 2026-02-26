@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
 using TurboTaxi.Application.Interfaces;
+using TurboTaxi.Domain.Enums;
 using TurboTaxi.Models.Routes;
 
 namespace TurboTaxi.Infrastructure.Services
@@ -63,6 +64,7 @@ namespace TurboTaxi.Infrastructure.Services
             _logger.LogInformation($"?? Route Request:");
             _logger.LogInformation($"   Origin:      [{request.Origin.Latitude:F6}, {request.Origin.Longitude:F6}]");
             _logger.LogInformation($"   Destination: [{request.Destination.Latitude:F6}, {request.Destination.Longitude:F6}]");
+            _logger.LogInformation($"   VehicleType: {request.VehicleType} ({(int)request.VehicleType})");
 
             var apiKey = _config["GoogleMaps:ApiKey"];
             var useGoogle = !string.IsNullOrWhiteSpace(apiKey);

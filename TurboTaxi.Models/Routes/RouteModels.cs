@@ -1,10 +1,12 @@
+using TurboTaxi.Domain.Enums;
+
 namespace TurboTaxi.Models.Routes
 {
     public class RouteEstimateRequest
     {
         public Coordinate Origin { get; set; } = new();
         public Coordinate Destination { get; set; } = new();
-        public string VehicleType { get; set; } = "Standard";
+        public VehicleType VehicleType { get; set; } = VehicleType.Eco;
         public string? PromoCode { get; set; }
     }
 
