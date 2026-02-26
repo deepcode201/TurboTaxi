@@ -54,13 +54,19 @@ namespace TurboTaxi.Infrastructure.Services
                 request.Destination.Longitude,
                 request.VehicleType);
 
-            var apiKey = _config["GoogleMaps:ApiKey"];
+            var apiKey = _config["GoogleMaps:ApiKey"]?.Trim();
 
             if (string.IsNullOrWhiteSpace(apiKey))
             {
                 _logger.LogError("Google Maps API key is not configured.");
                 return Fail("Google Maps API key is missing.");
             }
+
+            _logger.LogInformation(
+                "API Key | Length:{Len} | First6:{First} | Last4:{Last} | Source check: appsettings -> env override possible",
+                apiKey.Length,
+                apiKey[..Math.Min(6, apiKey.Length)],
+                apiKey[^Math.Min(4, apiKey.Length)..]);
 
             // ── Attempt 1: TRAFFIC_AWARE_OPTIMAL (real-time traffic) ─────────
             _logger.LogInformation("[1/2] Google TRAFFIC_AWARE_OPTIMAL...");
