@@ -1,0 +1,13 @@
+services:
+  api:
+    container_name: turbotaxi-dev-api
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file:
+      - .env
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+    ports:
+      - "8081:8080"
+    restart: unless-stopped

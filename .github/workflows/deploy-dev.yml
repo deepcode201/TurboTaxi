@@ -1,7 +1,8 @@
-name: Deploy DEV 
+name: Deploy DEV (self-hosted, temp dir)
 
 on:
-  workflow_dispatch:
+  push:
+    branches: ["develop"]
 
 concurrency:
   group: deploy-dev
@@ -9,39 +10,72 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: self-hosted
+    runs-on: [self-hosted]
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: develop  
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Prepare temp dir
+      - name: Preflight (whoami, docker, tools)
+        run: |
+          set -euo pipefail
+          whoami
+          id
+          docker --version
+          docker compose version
+          command -v rsync >/dev/null 2>&1 || echo "WARN: rsync not found (install it or replace with cp)"
+
+      - name: Create temp deploy directory
         id: prep
         run: |
+          set -euo pipefail
           DIR="/tmp/turbotaxi-dev"
-          echo "DIR=$DIR" >> $GITHUB_OUTPUT
+          echo "DIR=$DIR" >> "$GITHUB_OUTPUT"
+          rm -rf "$DIR"
           mkdir -p "$DIR"
+          echo "Using $DIR"
 
-      - name: Copy files
+      - name: Copy code into temp dir
         run: |
-          rsync -a --delete --exclude ".git" \
-            "$GITHUB_WORKSPACE/" "${{ steps.prep.outputs.DIR }}/"
+          set -euo pipefail
+          if command -v rsync >/dev/null 2>&1; then
+            rsync -a --delete \
+              --exclude ".git" \
+              "$GITHUB_WORKSPACE/" "${{ steps.prep.outputs.DIR }}/"
+          else
+            # Fallback
+            cp -a "$GITHUB_WORKSPACE/." "${{ steps.prep.outputs.DIR }}/"
+          fi
 
-      - name: Write DEV .env from Secret
+      - name: Write .env from GitHub Secret (DEV_ENV_FILE)
+        working-directory: ${{ steps.prep.outputs.DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Secret-i olduğu kimi yazır (newline-lar qorunur)
+          printf '%s\n' "${{ secrets.DEV_ENV_FILE }}" > .env
+          chmod 600 .env
+          echo ".env written ($(wc -l < .env) lines)"
+
+      - name: Deploy DEV (down old, remove volumes, up new)
         working-directory: ${{ steps.prep.outputs.DIR }}
         run: |
-          cat > .env <<EOF
-${{ secrets.DEV_ENV_FILE }}
-EOF
+          set -euo pipefail
 
-      - name: Deploy DEV
-        working-directory: ${{ steps.prep.outputs.DIR }}
-        run: |
+          echo "Files:"
+          ls -la
+          test -f docker-compose.dev.yml
+
+          # Köhnəni endir (DB sıfırlansın deyirsənsə -v qalır)
           docker compose -p turbotaxi-dev -f docker-compose.dev.yml down -v || true
+
+          # Yeni build + start
           docker compose -p turbotaxi-dev -f docker-compose.dev.yml up -d --build
+
+          docker ps
           docker compose -p turbotaxi-dev -f docker-compose.dev.yml ps
 
-      - name: Cleanup
+      - name: Cleanup temp directory
         if: always()
-        run: rm -rf "${{ steps.prep.outputs.DIR }}"
+        run: |
+          rm -rf "${{ steps.prep.outputs.DIR }}"
