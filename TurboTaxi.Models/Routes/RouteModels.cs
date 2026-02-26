@@ -29,6 +29,8 @@ namespace TurboTaxi.Models.Routes
         public int DurationMinutes { get; set; }
         public RoutePriceDto Price { get; set; } = new();
         public string? EncodedPolyline { get; set; }
+        /// <summary>Which routing engine produced this result: "Google" | "OSRM"</summary>
+        public string Source { get; set; } = "Unknown";
     }
 
     public class RoutePriceDto
