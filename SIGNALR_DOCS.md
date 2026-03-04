@@ -343,9 +343,33 @@ const coordinates = polyline.decode(encodedPolyline).map(([lat, lng]) => ({
 
 ---
 
-## 📍 Driver Location Update (REST)
+## 📍 Driver Location Update (PRIMARY: SignalR)
 
-Driver sends location via **HTTP POST** (not SignalR). The server automatically broadcasts it to the user via `DriverLocationUpdated`.
+Driver should send location via **SignalR invoke**. The server:
+- stores it in Redis
+- updates geo index
+- broadcasts `DriverLocationUpdated` to:
+  - the driver’s own app (`driver:{driverId}` group)
+  - the active user (`user:{userId}` group)
+
+### Driver → Server (SignalR)
+
+```javascript
+// Every 2–3 seconds while ride is active
+await connection.invoke('UpdateLocation', {
+  driverId: 3,
+  lat: 40.3810,
+  lng: 49.8911,
+  vehicleType: 0,      // enum ID → 0=Eco, 1=Business, 2=XL, 3=Delivery
+  statusOptional: 1    // enum ID → 0=Offline, 1=Free, 2=Busy, 3=BusySoon
+});
+```
+
+> Recommended interval: every **2–3 seconds** while ride is active.
+
+### (Optional) Legacy REST Fallback
+
+You can also use the HTTP endpoint if needed (not recommended for mobile real-time):
 
 ```
 POST /api/driver/location
@@ -355,12 +379,10 @@ Content-Type: application/json
   "driverId": 3,
   "lat": 40.3810,
   "lng": 49.8911,
-  "vehicleType": 0,      // enum ID → 0=Eco, 1=Business, 2=XL, 3=Delivery
-  "statusOptional": 1    // enum ID → 0=Offline, 1=Free, 2=Busy, 3=BusySoon
+  "vehicleType": 0,
+  "statusOptional": 1
 }
 ```
-
-> Recommended interval: every **2–3 seconds** while ride is active.
 
 ---
 
