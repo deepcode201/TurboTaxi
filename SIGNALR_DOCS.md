@@ -348,15 +348,15 @@ const coordinates = polyline.decode(encodedPolyline).map(([lat, lng]) => ({
 Driver sends location via **HTTP POST** (not SignalR). The server automatically broadcasts it to the user via `DriverLocationUpdated`.
 
 ```
-POST /api/DriverLocation/update
+POST /api/driver/location
 Content-Type: application/json
 
 {
   "driverId": 3,
   "lat": 40.3810,
   "lng": 49.8911,
-  "vehicleType": "Eco",     // 0=Eco, 1=Business, 2=XL, 3=Delivery
-  "statusOptional": "Busy"  // "Free" | "Busy"
+  "vehicleType": 0,      // enum ID → 0=Eco, 1=Business, 2=XL, 3=Delivery
+  "statusOptional": 1    // enum ID → 0=Offline, 1=Free, 2=Busy, 3=BusySoon
 }
 ```
 
@@ -459,7 +459,9 @@ export default new TurboTaxiSignalR();
 
 ---
 
-## ⚙️ VehicleType Enum
+## ⚙️ Enums
+
+**VehicleType**
 
 | ID | Name |
 |----|------|
@@ -467,6 +469,15 @@ export default new TurboTaxiSignalR();
 | `1` | `Business` |
 | `2` | `XL` |
 | `3` | `Delivery` |
+
+**DriverStatus**
+
+| ID | Name      |
+|----|-----------|
+| `0` | `Offline`  |
+| `1` | `Free`     |
+| `2` | `Busy`     |
+| `3` | `BusySoon` |
 
 ---
 

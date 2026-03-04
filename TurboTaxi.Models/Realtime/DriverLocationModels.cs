@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using TurboTaxi.Domain.Enums;
 
 namespace TurboTaxi.Models.Realtime
 {
@@ -11,10 +12,12 @@ namespace TurboTaxi.Models.Realtime
         
         [JsonPropertyName("lng")]
         public double Longitude { get; set; }
+
+        // Enum ID: 0=Eco, 1=Business, 2=XL, 3=Delivery
+        public VehicleType VehicleType { get; set; } = VehicleType.Eco;
         
-        public string VehicleType { get; set; } = "Standard";
-        
+        // Enum ID: 0=Offline, 1=Free, 2=Busy, 3=BusySoon
         [JsonPropertyName("statusOptional")]
-        public string? DriverStatus { get; set; }
+        public DriverStatus? DriverStatus { get; set; }
     }
 }
