@@ -372,9 +372,12 @@ import * as signalR from '@microsoft/signalr';
 class TurboTaxiSignalR {
   constructor() {
     this.connection = null;
+    this.currentUserId = null;
+    this.currentDriverId = null;
   }
 
-  async connect(userId) {
+  async connectAsUser(userId) {
+    this.currentUserId = userId;
     this.connection = new signalR.HubConnectionBuilder()
       .withUrl('https://YOUR_SERVER/hubs/driver')
       .withAutomaticReconnect([0, 2000, 5000, 10000])
@@ -387,6 +390,21 @@ class TurboTaxiSignalR {
     await this.connection.invoke('SubscribeUser', String(userId));
 
     console.log('Connected & subscribed as user:', userId);
+  }
+
+  async connectAsDriver(driverId) {
+    this.currentDriverId = driverId;
+    this.connection = new signalR.HubConnectionBuilder()
+      .withUrl('https://YOUR_SERVER/hubs/driver')
+      .withAutomaticReconnect([0, 2000, 5000, 10000])
+      .build();
+
+    this.registerListeners();
+
+    await this.connection.start();
+    await this.connection.invoke('SubscribeDriver', String(driverId));
+
+    console.log('Connected & subscribed as driver:', driverId);
   }
 
   registerListeners() {
@@ -411,7 +429,22 @@ class TurboTaxiSignalR {
     });
 
     this.connection.onreconnecting(() => console.warn('Reconnecting...'));
-    this.connection.onreconnected(() => console.log('Reconnected'));
+
+    // IMPORTANT: after reconnect, SignalR does NOT remember group subscriptions.
+    // We must re-subscribe the current user/driver to their groups.
+    this.connection.onreconnected(async () => {
+      console.log('Reconnected, re-subscribing to groups');
+      try {
+        if (this.currentUserId != null) {
+          await this.connection.invoke('SubscribeUser', String(this.currentUserId));
+        }
+        if (this.currentDriverId != null) {
+          await this.connection.invoke('SubscribeDriver', String(this.currentDriverId));
+        }
+      } catch (err) {
+        console.error('Resubscribe after reconnect failed:', err);
+      }
+    });
     this.connection.onclose(() => console.error('Connection closed'));
   }
 
