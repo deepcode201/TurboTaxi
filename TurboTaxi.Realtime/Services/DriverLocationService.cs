@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using TurboTaxi.Application.Interfaces;
+using TurboTaxi.Domain.Enums;
 using TurboTaxi.Models.Realtime;
 using TurboTaxi.Realtime.Hubs;
 using TurboTaxi.Realtime.Redis;
@@ -35,18 +36,21 @@ namespace TurboTaxi.Realtime.Services
 
             // Update Redis with driver location
             var hashKey = RedisKeys.DriverHash(request.DriverId);
+            var status = (request.DriverStatus ?? DriverStatus.Free).ToString();
+            var vehicleTypeString = request.VehicleType.ToString();
+
             var entries = new HashEntry[]
             {
                 new("lat", request.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 new("lng", request.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)),
-                new("status", request.DriverStatus ?? "Free"),
-                new("vehicleType", request.VehicleType ?? "Standard"),
+                new("status", status),
+                new("vehicleType", vehicleTypeString),
                 new("updatedAt", updatedAt.ToString("o"))
             };
             await _redis.HashSetAsync(hashKey, entries);
 
             // Update geo-spatial index
-            var vt = (request.VehicleType ?? "Standard").ToLowerInvariant();
+            var vt = vehicleTypeString.ToLowerInvariant();
             var geoKey = $"geo:drivers:{vt}";
             await _redis.GeoAddAsync(geoKey, request.Longitude, request.Latitude, member: request.DriverId.ToString());
 
@@ -72,7 +76,7 @@ namespace TurboTaxi.Realtime.Services
                     request.DriverId,
                     request.Latitude,
                     request.Longitude,
-                    request.VehicleType ?? "Standard",
+                    vehicleTypeString,
                     ct);
             }
             catch (Exception ex)
