@@ -258,7 +258,7 @@ namespace TurboTaxi.Infrastructure.Services
                         DurationMinutes = durationMin,
                         EstimatedFare = estimatedFare,
                         Message = "Searching for nearby drivers..."
-                    });
+                    }); 
                 }
                 catch (Exception ex)
                 {
