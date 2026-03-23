@@ -189,7 +189,7 @@ namespace TurboTaxi.Infrastructure.Services
                     try
                     {
                         var did = int.Parse(r.Member);
-                        var h = await _redis.HashGetAllAsync(RedisKeys.DriverHash(did));
+                        var h = await _redis.HashGetAllAsync(RedisKeys.DriverHash(did));  
                         var d = h.ToDictionary(x => x.Name.ToString(), x => x.Value.ToString());
 
                         if (d.TryGetValue("status", out var status) && status == "Free" &&
