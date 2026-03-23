@@ -36,6 +36,27 @@ namespace TurboTaxi.Infrastructure.Services
             {
                 _logger.LogInformation($"Checking pending rides for driver #{driverId} at ({latitude}, {longitude})");
 
+                // Read current driver status & vehicle type from Redis so that
+                // only suitable (free) drivers are considered for matching.
+                var driverHash = await _redis.HashGetAllAsync(RedisKeys.DriverHash(driverId));
+                var driverDict = driverHash.ToDictionary(x => x.Name.ToString(), x => x.Value.ToString());
+
+                var statusStr = driverDict.TryGetValue("status", out var s) ? s : nameof(DriverStatus.Free);
+                if (!Enum.TryParse<DriverStatus>(statusStr, ignoreCase: true, out var driverStatus))
+                {
+                    driverStatus = DriverStatus.Free;
+                }
+
+                if (driverStatus is not DriverStatus.Free and not DriverStatus.BusySoon)
+                {
+                    _logger.LogInformation($"Driver #{driverId} status is {driverStatus}, skipping pending ride search.");
+                    return;
+                }
+
+                var driverVehicleType = driverDict.TryGetValue("vehicleType", out var vt) && !string.IsNullOrWhiteSpace(vt)
+                    ? vt
+                    : vehicleType;
+
                 var pendingRides = await _db.Rides
                     .Include(r => r.StartLocation)
                     .Include(r => r.EndLocation)
@@ -47,6 +68,12 @@ namespace TurboTaxi.Infrastructure.Services
                 int notifiedCount = 0;
                 foreach (var ride in pendingRides)
                 {
+                    // Filter by requested vehicle type vs driver's current vehicle type
+                    if (!string.Equals(ride.RequestedVehicleType.ToString(), driverVehicleType, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
                     var distanceKm = CalculateDistance(latitude, longitude, ride.StartLocation.Latitude, ride.StartLocation.Longitude);
                     if (distanceKm > 5.0) continue;
 

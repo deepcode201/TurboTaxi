@@ -10,7 +10,7 @@ using TurboTaxi.Models.Routes;
 using TurboTaxi.Realtime.Redis;
 
 namespace TurboTaxi.Infrastructure.Services
-{
+{ 
     public class RideService : IRideService
     {
         private readonly ApplicationDbContext _db;
@@ -121,7 +121,7 @@ namespace TurboTaxi.Infrastructure.Services
                         Name = "Test",
                         Surname = $"User {request.UserId}",
                         PhoneNumber = $"+994{50 + request.UserId}{1000000 + request.UserId}",
-                        Email = $"testuser{request.UserId}@turbotaxi.com",
+                        Email = $"testuser{request.UserId}@turbotaxi.com", 
                         PasswordHash = "TestPassword123!@#",
                         IsActive = true,
                         CreatedTime = DateTime.UtcNow
@@ -146,7 +146,7 @@ namespace TurboTaxi.Infrastructure.Services
                     UserId = request.UserId,
                     StartLocationId = startLoc.Id,
                     EndLocationId = endLoc.Id,
-                    RequestedVehicleType = Enum.TryParse<VehicleType>(request.VehicleType, true, out var vt) ? vt : VehicleType.Eco,
+                    RequestedVehicleType = request.VehicleType,
                     Status = RideStatus.Pending,
                     RequestedTime = DateTime.UtcNow
                 };
@@ -168,7 +168,7 @@ namespace TurboTaxi.Infrastructure.Services
                 try
                 {
                     nearbyDrivers = await _redis.GeoRadiusAsync(
-                        $"geo:drivers:{request.VehicleType.ToLowerInvariant()}",
+                        $"geo:drivers:{request.VehicleType.ToString().ToLowerInvariant()}",
                         request.PickupLng,
                         request.PickupLat,
                         3.0);
@@ -189,7 +189,7 @@ namespace TurboTaxi.Infrastructure.Services
                     try
                     {
                         var did = int.Parse(r.Member);
-                        var h = await _redis.HashGetAllAsync(RedisKeys.DriverHash(did));
+                        var h = await _redis.HashGetAllAsync(RedisKeys.DriverHash(did));  
                         var d = h.ToDictionary(x => x.Name.ToString(), x => x.Value.ToString());
 
                         if (d.TryGetValue("status", out var status) && status == "Free" &&
@@ -211,7 +211,7 @@ namespace TurboTaxi.Infrastructure.Services
 
                 // Calculate estimated fare for display to driver and user
                 decimal estimatedFare = await _fareCalculator.CalculateEstimatedFareAsync(
-                    request.VehicleType,
+                    request.VehicleType.ToString(),
                     distanceKm,
                     durationMin,
                     DateTime.UtcNow);
@@ -223,7 +223,7 @@ namespace TurboTaxi.Infrastructure.Services
                         var driverPayload = new NewRideRequestPayload
                         {
                             RideId = ride.Id,
-                            VehicleType = request.VehicleType,
+                            VehicleType = request.VehicleType.ToString(),
                             PickupLat = request.PickupLat,
                             PickupLng = request.PickupLng,
                             DestinationLat = request.DestinationLat ?? 0,
@@ -258,7 +258,7 @@ namespace TurboTaxi.Infrastructure.Services
                         DurationMinutes = durationMin,
                         EstimatedFare = estimatedFare,
                         Message = "Searching for nearby drivers..."
-                    });
+                    }); 
                 }
                 catch (Exception ex)
                 {
@@ -746,17 +746,21 @@ namespace TurboTaxi.Infrastructure.Services
             ride.CanceledTime = DateTime.UtcNow;
             await _db.SaveChangesAsync(ct);
 
-            // If pending and no driver, notify all drivers
+            // If pending and no driver, notify all drivers and clean up notification keys
             if (prevStatus == RideStatus.Pending && !ride.DriverId.HasValue)
             {
                 try
                 {
+                    // Clean up any notification keys for this ride
+                    await _redis.DeleteKeysByPatternAsync($"notify:ride:{rideId}:driver:*");
+                    _logger.LogInformation($"? Cleaned up notification keys for ride #{rideId}");
+
                     await _notification.NotifyAllDriversRideCanceled(rideId);
                     _logger.LogInformation($"? All drivers notified about ride #{rideId} cancellation");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to notify drivers");
+                    _logger.LogError(ex, "Failed to notify drivers or clean up keys");
                 }
             }
 

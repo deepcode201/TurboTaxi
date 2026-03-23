@@ -1,6 +1,36 @@
 # TurboTaxi — SignalR Real-Time Documentation
-> React Native Developer Guide  
+> React Native Developer Guide  \
 > Branch: `SignalRModify` | Base URL: `https://YOUR_SERVER/hubs/driver`
+
+---
+
+## 🔍 Hub Overview
+
+**Hub:** `DriverHub` (`/hubs/driver`)
+
+**Server methods (client → server):**
+- `SubscribeUser(userId: string)` – join `user:{userId}` group
+- `UnsubscribeUser(userId: string)` – leave `user:{userId}` group
+- `SubscribeDriver(driverId: string)` – join `driver:{driverId}` group
+- `UnsubscribeDriver(driverId: string)` – leave `driver:{driverId}` group
+- `UpdateLocation(request: DriverLocationUpdateRequest)` – primary real-time driver GPS update
+
+**Client methods (server → client):**
+- `DriverLocationUpdated(driverId: number, lat: number, lng: number)`
+- `NewRideRequest(requestId: string, payload: object)`
+- `RideStatusUpdated(rideId: number, status: string, payload: object)`
+
+**`DriverLocationUpdateRequest` shape (SignalR + REST):**
+
+```json
+{
+  "driverId": 3,
+  "lat": 40.3810,
+  "lng": 49.8911,
+  "vehicleType": 0,      // 0=Eco, 1=Business, 2=XL, 3=Delivery
+  "statusOptional": 1    // 0=Offline, 1=Free, 2=Busy, 3=BusySoon
+}
+```
 
 ---
 
@@ -343,24 +373,46 @@ const coordinates = polyline.decode(encodedPolyline).map(([lat, lng]) => ({
 
 ---
 
-## 📍 Driver Location Update (REST)
+## 📍 Driver Location Update (PRIMARY: SignalR)
 
-Driver sends location via **HTTP POST** (not SignalR). The server automatically broadcasts it to the user via `DriverLocationUpdated`.
+Driver should send location via **SignalR invoke**. The server:
+- stores it in Redis
+- updates geo index
+- broadcasts `DriverLocationUpdated` to:
+  - the driver’s own app (`driver:{driverId}` group)
+  - the active user (`user:{userId}` group)
+
+### Driver → Server (SignalR)
+
+```javascript
+// Every 2–3 seconds while ride is active
+await connection.invoke('UpdateLocation', {
+  driverId: 3,
+  lat: 40.3810,
+  lng: 49.8911,
+  vehicleType: 0,      // enum ID → 0=Eco, 1=Business, 2=XL, 3=Delivery
+  statusOptional: 1    // enum ID → 0=Offline, 1=Free, 2=Busy, 3=BusySoon
+});
+```
+
+> Recommended interval: every **2–3 seconds** while ride is active.
+
+### (Optional) Legacy REST Fallback
+
+You can also use the HTTP endpoint if needed (not recommended for mobile real-time):
 
 ```
-POST /api/DriverLocation/update
+POST /api/driver/location
 Content-Type: application/json
 
 {
   "driverId": 3,
   "lat": 40.3810,
   "lng": 49.8911,
-  "vehicleType": "Eco",     // 0=Eco, 1=Business, 2=XL, 3=Delivery
-  "statusOptional": "Busy"  // "Free" | "Busy"
+  "vehicleType": 0,
+  "statusOptional": 1
 }
 ```
-
-> Recommended interval: every **2–3 seconds** while ride is active.
 
 ---
 
@@ -372,9 +424,12 @@ import * as signalR from '@microsoft/signalr';
 class TurboTaxiSignalR {
   constructor() {
     this.connection = null;
+    this.currentUserId = null;
+    this.currentDriverId = null;
   }
 
-  async connect(userId) {
+  async connectAsUser(userId) {
+    this.currentUserId = userId;
     this.connection = new signalR.HubConnectionBuilder()
       .withUrl('https://YOUR_SERVER/hubs/driver')
       .withAutomaticReconnect([0, 2000, 5000, 10000])
@@ -387,6 +442,21 @@ class TurboTaxiSignalR {
     await this.connection.invoke('SubscribeUser', String(userId));
 
     console.log('Connected & subscribed as user:', userId);
+  }
+
+  async connectAsDriver(driverId) {
+    this.currentDriverId = driverId;
+    this.connection = new signalR.HubConnectionBuilder()
+      .withUrl('https://YOUR_SERVER/hubs/driver')
+      .withAutomaticReconnect([0, 2000, 5000, 10000])
+      .build();
+
+    this.registerListeners();
+
+    await this.connection.start();
+    await this.connection.invoke('SubscribeDriver', String(driverId));
+
+    console.log('Connected & subscribed as driver:', driverId);
   }
 
   registerListeners() {
@@ -411,7 +481,22 @@ class TurboTaxiSignalR {
     });
 
     this.connection.onreconnecting(() => console.warn('Reconnecting...'));
-    this.connection.onreconnected(() => console.log('Reconnected'));
+
+    // IMPORTANT: after reconnect, SignalR does NOT remember group subscriptions.
+    // We must re-subscribe the current user/driver to their groups.
+    this.connection.onreconnected(async () => {
+      console.log('Reconnected, re-subscribing to groups');
+      try {
+        if (this.currentUserId != null) {
+          await this.connection.invoke('SubscribeUser', String(this.currentUserId));
+        }
+        if (this.currentDriverId != null) {
+          await this.connection.invoke('SubscribeDriver', String(this.currentDriverId));
+        }
+      } catch (err) {
+        console.error('Resubscribe after reconnect failed:', err);
+      }
+    });
     this.connection.onclose(() => console.error('Connection closed'));
   }
 
@@ -459,7 +544,9 @@ export default new TurboTaxiSignalR();
 
 ---
 
-## ⚙️ VehicleType Enum
+## ⚙️ Enums
+
+**VehicleType**
 
 | ID | Name |
 |----|------|
@@ -467,6 +554,15 @@ export default new TurboTaxiSignalR();
 | `1` | `Business` |
 | `2` | `XL` |
 | `3` | `Delivery` |
+
+**DriverStatus**
+
+| ID | Name      |
+|----|-----------|
+| `0` | `Offline`  |
+| `1` | `Free`     |
+| `2` | `Busy`     |
+| `3` | `BusySoon` |
 
 ---
 

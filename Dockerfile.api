@@ -1,16 +1,21 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+COPY TurboTaxi.slnx ./
+
 COPY TurboTaxi.API/TurboTaxi.API.csproj TurboTaxi.API/
 COPY TurboTaxi.Application/TurboTaxi.Application.csproj TurboTaxi.Application/
 COPY TurboTaxi.Domain/TurboTaxi.Domain.csproj TurboTaxi.Domain/
 COPY TurboTaxi.Infrastructure/TurboTaxi.Infrastructure.csproj TurboTaxi.Infrastructure/
 COPY TurboTaxi.Models/TurboTaxi.Models.csproj TurboTaxi.Models/
+COPY TurboTaxi.Realtime/TurboTaxi.Realtime.csproj TurboTaxi.Realtime/
 
-RUN dotnet restore TurboTaxi.API/TurboTaxi.API.csproj
+RUN dotnet restore TurboTaxi.slnx
 
 COPY . .
-RUN dotnet publish TurboTaxi.API/TurboTaxi.API.csproj -c Release -o /app/publish /p:UseAppHost=false
+
+RUN dotnet build TurboTaxi.API/TurboTaxi.API.csproj -c Release --no-restore
+RUN dotnet publish TurboTaxi.API/TurboTaxi.API.csproj -c Release -o /app/publish --no-build /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app

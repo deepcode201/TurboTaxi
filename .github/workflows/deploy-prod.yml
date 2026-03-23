@@ -1,0 +1,54 @@
+name: Deploy PROD
+
+on:
+  push:
+    branches: ["prod"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: [self-hosted]
+
+    steps:
+      - name: Checkout code (prod branch)
+        uses: actions/checkout@v4
+        with:
+          ref: prod
+
+      - name: Prepare temp dir
+        id: prep
+        run: |
+          set -euo pipefail
+          DIR="/tmp/turbotaxi-prod"
+          echo "DIR=$DIR" >> "$GITHUB_OUTPUT"
+          rm -rf "$DIR"
+          mkdir -p "$DIR"
+
+      - name: Copy files
+        run: |
+          set -euo pipefail
+          rsync -a --delete --exclude ".git" \
+            "$GITHUB_WORKSPACE/" "${{ steps.prep.outputs.DIR }}/"
+
+      - name: Write PROD .env from Secret
+        working-directory: ${{ steps.prep.outputs.DIR }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "${{ secrets.ENV_FILE }}" > .env
+          chmod 600 .env
+
+      - name: Deploy PROD
+        working-directory: ${{ steps.prep.outputs.DIR }}
+        run: |
+          set -euo pipefail
+          docker compose -p turbotaxi-prod -f docker-compose.prod.yml down || true
+          docker compose -p turbotaxi-prod -f docker-compose.prod.yml up -d --build
+          docker compose -p turbotaxi-prod -f docker-compose.prod.yml ps
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "${{ steps.prep.outputs.DIR }}"

@@ -15,7 +15,7 @@ namespace TurboTaxi.Infrastructure
                 options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
 
             services.AddHttpClient<IRouteEstimationService, RouteEstimationService>();
-            
+
             // Add memory cache for deduplication
             services.AddMemoryCache();
 
