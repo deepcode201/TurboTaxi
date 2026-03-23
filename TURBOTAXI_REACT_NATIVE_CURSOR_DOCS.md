@@ -58,6 +58,16 @@ export interface DriverLocationPayload {
     longitude: number;
     heading?: number;
 }
+
+export interface RideCompletionPayload {
+    rideId: number;
+    status: "Completed"; // RideStatus.Completed
+    finalPrice: number; // Final fare amount in currency
+    completedAtUtc: string; // ISO 8601 datetime
+    clearMap: boolean; // Always true for completion
+    message?: string; // User-friendly message (e.g., "Trip completed! Total: 25.50 AZN")
+    userType?: "user" | "driver"; // Indicates which app received the notification
+}
 ```
 
 ---
@@ -107,8 +117,36 @@ Drivers must send their live GPS location **every 3 to 5 seconds** while the rid
 
 #### Event 3: `RideStatusUpdated` (Both Apps)
 - Triggered when state changes (e.g., Driver arrives at pickup, ride starts, ride finishes).
-- **Payload:** `{ rideId: number, status: string }`
-- **Action:** Update UI elements (e.g., change bottom sheet text from "Driver arriving" to "Ride in progress"). If `Completed`, clear active map state.
+- **Payload shapes depend on the event trigger:**
+
+##### Sub-case 3a: Ride Completion (`status: "Completed"`)
+Cast to `RideCompletionPayload`:
+```typescript
+{
+  rideId: number;
+  status: "Completed";
+  finalPrice: number;        // e.g., 25.50
+  completedAtUtc: string;    // ISO 8601 timestamp
+  clearMap: boolean;         // Always true
+  message?: string;          // e.g., "Trip completed! Total: 25.50 AZN. Thank you!"
+  userType?: "user" | "driver"; // Lets client customize UI
+}
+```
+- **Action (User App):**
+  1. Display final amount on a summary screen.
+  2. Show message: `${finalPrice} AZN`.
+  3. Clear the map (hide markers, polyline).
+  4. Trigger optional payment confirmation or rating screen.
+
+- **Action (Driver App):**
+  1. Display earnings: `"You earned ${finalPrice} AZN"`.
+  2. Update driver balance/earnings history.
+  3. Clear the map.
+  4. Transition to "Available for new rides" state.
+
+##### Sub-case 3b: Other Status Changes (`status: "Pending" | "Approved" | "OnWay" | "Cancelled"`)
+- **Payload:** Generic `{ rideId: number, status: string, ...otherFields? }`
+- **Action:** Update UI elements (e.g., change bottom sheet text from "Driver arriving" to "Ride in progress"). If `Cancelled`, clear active map state.
 
 ---
 

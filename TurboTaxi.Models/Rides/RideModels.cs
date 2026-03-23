@@ -70,4 +70,16 @@ namespace TurboTaxi.Models.Rides
         public int RideId { get; set; }
         public string Status { get; set; } = null!;
     }
+
+    // SignalR Payload for Ride Completion - sent to both User and Driver
+    public class RideCompletionPayload
+    {
+        public int RideId { get; set; }
+        public string Status { get; set; } = "Completed"; // RideStatus.Completed
+        public decimal FinalPrice { get; set; }
+        public DateTime CompletedAtUtc { get; set; }
+        public bool ClearMap { get; set; } = true;
+        public string? Message { get; set; }
+        public string? UserType { get; set; } // "user" or "driver" - for client-side handling
+    }
 }

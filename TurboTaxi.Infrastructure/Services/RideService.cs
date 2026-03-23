@@ -629,16 +629,17 @@ namespace TurboTaxi.Infrastructure.Services
             // Notify user
             try
             {
-                await _notification.NotifyUserAsync(ride.UserId, new
+                var userPayload = new RideCompletionPayload
                 {
                     RideId = ride.Id,
                     Status = ride.Status.ToString(),
-                    FinalPrice = ride.ActualFare,
-                    CompletedAt = ride.CompletedTime,
+                    FinalPrice = ride.ActualFare.Value,
+                    CompletedAtUtc = ride.CompletedTime.Value,
                     ClearMap = true,
-                    EncodedPolyline = (string?)null,
-                    Message = $"Trip completed! Total: {ride.ActualFare:F2} AZN. Thank you!"
-                });
+                    Message = $"Trip completed! Total: {ride.ActualFare:F2} AZN. Thank you!",
+                    UserType = "user"
+                };
+                await _notification.NotifyUserAsync(ride.UserId, userPayload);
             }
             catch (Exception ex)
             {
@@ -648,16 +649,17 @@ namespace TurboTaxi.Infrastructure.Services
             // Notify driver
             try
             {
-                await _notification.NotifyDriverAsync(request.DriverId, new
+                var driverPayload = new RideCompletionPayload
                 {
                     RideId = ride.Id,
                     Status = ride.Status.ToString(),
-                    FinalPrice = ride.ActualFare,
-                    CompletedAt = ride.CompletedTime,
+                    FinalPrice = ride.ActualFare.Value,
+                    CompletedAtUtc = ride.CompletedTime.Value,
                     ClearMap = true,
-                    EncodedPolyline = (string?)null,
-                    Message = $"Trip completed! You earned {ride.ActualFare:F2} AZN"
-                });
+                    Message = $"Trip completed! You earned {ride.ActualFare:F2} AZN",
+                    UserType = "driver"
+                };
+                await _notification.NotifyDriverAsync(request.DriverId, driverPayload);
             }
             catch (Exception ex)
             {
