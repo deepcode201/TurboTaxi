@@ -1,4 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging;
+using TurboTaxi.Application.Interfaces;
+using TurboTaxi.Models.Realtime;
 
 namespace TurboTaxi.Realtime.Hubs
 {
@@ -11,6 +14,15 @@ namespace TurboTaxi.Realtime.Hubs
 
     public class DriverHub : Hub<IDriverClient>
     {
+        private readonly IDriverLocationService _driverLocationService;
+        private readonly ILogger<DriverHub> _logger;
+
+        public DriverHub(IDriverLocationService driverLocationService, ILogger<DriverHub> logger)
+        {
+            _driverLocationService = driverLocationService;
+            _logger = logger;
+        }
+
         public Task SubscribeDriver(string driverId)
             => Groups.AddToGroupAsync(Context.ConnectionId, $"driver:{driverId}");
 
@@ -22,5 +34,30 @@ namespace TurboTaxi.Realtime.Hubs
 
         public Task UnsubscribeUser(string userId)
             => Groups.RemoveFromGroupAsync(Context.ConnectionId, $"user:{userId}");
+
+        /// <summary>
+        /// Real-time driver location update over SignalR.
+        /// This is equivalent to calling the REST endpoint /api/driver/location.
+        /// </summary>
+        public async Task UpdateLocation(DriverLocationUpdateRequest request)
+        {
+            if (request == null)
+            {
+                throw new ArgumentNullException(nameof(request));
+            }
+
+            if (request.DriverId <= 0)
+            {
+                throw new HubException("DriverId must be greater than 0.");
+            }
+
+            _logger.LogInformation(
+                "[SignalR] Driver #{DriverId} location update via hub: ({Lat}, {Lng})",
+                request.DriverId,
+                request.Latitude,
+                request.Longitude);
+
+            await _driverLocationService.UpdateAsync(request, Context.ConnectionAborted);
+        }
     }
 }

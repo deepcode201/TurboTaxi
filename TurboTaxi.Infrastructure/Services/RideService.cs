@@ -146,7 +146,7 @@ namespace TurboTaxi.Infrastructure.Services
                     UserId = request.UserId,
                     StartLocationId = startLoc.Id,
                     EndLocationId = endLoc.Id,
-                    RequestedVehicleType = Enum.TryParse<VehicleType>(request.VehicleType, true, out var vt) ? vt : VehicleType.Eco,
+                    RequestedVehicleType = request.VehicleType,
                     Status = RideStatus.Pending,
                     RequestedTime = DateTime.UtcNow
                 };
@@ -168,7 +168,7 @@ namespace TurboTaxi.Infrastructure.Services
                 try
                 {
                     nearbyDrivers = await _redis.GeoRadiusAsync(
-                        $"geo:drivers:{request.VehicleType.ToLowerInvariant()}",
+                        $"geo:drivers:{request.VehicleType.ToString().ToLowerInvariant()}",
                         request.PickupLng,
                         request.PickupLat,
                         3.0);

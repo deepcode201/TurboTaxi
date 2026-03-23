@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using TurboTaxi.Application.Interfaces;
+using TurboTaxi.Domain.Enums;
 using TurboTaxi.Models.Rides;
 
 namespace TurboTaxi.API.Controllers
@@ -20,6 +21,12 @@ namespace TurboTaxi.API.Controllers
         [HttpPost]
         public async Task<ActionResult<CreateRideResponse>> CreateRide([FromBody] CreateRideRequest request, CancellationToken ct)
         {
+            if (!Enum.IsDefined(typeof(VehicleType), request.VehicleType))
+            {
+                var valid = string.Join(", ", Enum.GetValues<VehicleType>().Select(v => $"{(int)v}={v}"));
+                return BadRequest(new { error = $"Invalid VehicleType: '{(int)request.VehicleType}'. Valid: {valid}" });
+            }
+
             try
             {
                 _logger.LogInformation($"?? POST /api/rides - Creating ride for User #{request.UserId}");

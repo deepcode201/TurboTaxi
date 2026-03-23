@@ -1,3 +1,5 @@
+using TurboTaxi.Domain.Enums;
+
 namespace TurboTaxi.Models.Rides
 {
     public class CreateRideRequest
@@ -6,7 +8,7 @@ namespace TurboTaxi.Models.Rides
         public double PickupLng { get; set; }
         public double? DestinationLat { get; set; }
         public double? DestinationLng { get; set; }
-        public string VehicleType { get; set; } = "Eco";
+        public VehicleType VehicleType { get; set; } = VehicleType.Eco;
         public int UserId { get; set; }
     }
 
