@@ -260,7 +260,7 @@ namespace TurboTaxi.Infrastructure.Services
                         DistanceKm = distanceKm,
                         DurationMinutes = durationMin,
                         Message = "Searching for nearby drivers..."
-                    });
+                    }); 
                 }
                 catch (Exception ex)
                 {
