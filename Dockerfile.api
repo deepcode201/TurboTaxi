@@ -1,13 +1,17 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+# Solution varsa mütləq əlavə et
+COPY *.sln .
+
 COPY TurboTaxi.API/TurboTaxi.API.csproj TurboTaxi.API/
 COPY TurboTaxi.Application/TurboTaxi.Application.csproj TurboTaxi.Application/
 COPY TurboTaxi.Domain/TurboTaxi.Domain.csproj TurboTaxi.Domain/
 COPY TurboTaxi.Infrastructure/TurboTaxi.Infrastructure.csproj TurboTaxi.Infrastructure/
 COPY TurboTaxi.Models/TurboTaxi.Models.csproj TurboTaxi.Models/
+COPY TurboTaxi.Realtime/TurboTaxi.Realtime.csproj TurboTaxi.Realtime/
 
-RUN dotnet restore TurboTaxi.API/TurboTaxi.API.csproj
+RUN dotnet restore
 
 COPY . .
 
