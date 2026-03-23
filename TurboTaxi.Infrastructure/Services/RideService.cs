@@ -206,26 +206,11 @@ namespace TurboTaxi.Infrastructure.Services
                 // Notify drivers
                 _logger.LogInformation($"?? Notifying {candidateIds.Count} available drivers");
 
-                var notifyIds = new List<int>();
-                foreach (var driverId in candidateIds)
+                if (candidateIds.Count > 0)
                 {
                     try
                     {
-                        var key = $"notify:ride:{ride.Id}:driver:{driverId}";
-                        var firstTime = await _redis.SetStringIfNotExistsAsync(key, "1", TimeSpan.FromHours(6));
-                        if (firstTime) notifyIds.Add(driverId);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, $"Failed to set notification key for driver #{driverId}");
-                    }
-                }
-
-                if (notifyIds.Count > 0)
-                {
-                    try
-                    {
-                        await _notification.NotifyNearestDriversAsync(notifyIds, new
+                        await _notification.NotifyNearestDriversAsync(candidateIds, new
                         {
                             RideId = ride.Id,
                             PickupLat = request.PickupLat,
@@ -237,7 +222,7 @@ namespace TurboTaxi.Infrastructure.Services
                             DistanceKm = distanceKm,
                             DurationMinutes = durationMin
                         });
-                        _logger.LogInformation($"? Notified {notifyIds.Count} drivers");
+                        _logger.LogInformation($"? Notified {candidateIds.Count} drivers");
                     }
                     catch (Exception ex)
                     {
@@ -743,17 +728,21 @@ namespace TurboTaxi.Infrastructure.Services
             ride.CanceledTime = DateTime.UtcNow;
             await _db.SaveChangesAsync(ct);
 
-            // If pending and no driver, notify all drivers
+            // If pending and no driver, notify all drivers and clean up notification keys
             if (prevStatus == RideStatus.Pending && !ride.DriverId.HasValue)
             {
                 try
                 {
+                    // Clean up any notification keys for this ride
+                    await _redis.DeleteKeysByPatternAsync($"notify:ride:{rideId}:driver:*");
+                    _logger.LogInformation($"? Cleaned up notification keys for ride #{rideId}");
+
                     await _notification.NotifyAllDriversRideCanceled(rideId);
                     _logger.LogInformation($"? All drivers notified about ride #{rideId} cancellation");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to notify drivers");
+                    _logger.LogError(ex, "Failed to notify drivers or clean up keys");
                 }
             }
 

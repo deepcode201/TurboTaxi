@@ -14,6 +14,7 @@ namespace TurboTaxi.Realtime.Redis
         Task<GeoRadiusResult[]> GeoRadiusAsync(string key, double longitude, double latitude, double radiusKm);
         Task<string?> HashGetAsync(string key, string field);
         Task HashDeleteAsync(string key, string field);
+        Task DeleteKeysByPatternAsync(string pattern);
         // Debug helpers
         Task<TimeSpan?> GetTTLAsync(string key);
         Task<GeoPosition?> GeoPositionAsync(string key, string member);
@@ -38,6 +39,16 @@ namespace TurboTaxi.Realtime.Redis
             return val.HasValue ? val.ToString() : null;
         }
         public Task HashDeleteAsync(string key, string field) => Db.HashDeleteAsync(key, field);
+        public async Task DeleteKeysByPatternAsync(string pattern)
+        {
+            var endpoint = _mux.GetEndPoints().First();
+            var server = _mux.GetServer(endpoint);
+            var keys = server.Keys(pattern: pattern).ToList();
+            if (keys.Count > 0)
+            {
+                await Db.KeyDeleteAsync(keys.ToArray());
+            }
+        }
         public Task<TimeSpan?> GetTTLAsync(string key) => Db.KeyTimeToLiveAsync(key);
         public Task<GeoPosition?> GeoPositionAsync(string key, string member) => Db.GeoPositionAsync(key, member);
         public Task<IEnumerable<string>> ListKeysAsync(string pattern)
