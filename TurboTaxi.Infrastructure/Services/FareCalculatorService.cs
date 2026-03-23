@@ -6,7 +6,7 @@ using TurboTaxi.Infrastructure.Data;
 
 namespace TurboTaxi.Infrastructure.Services
 {
-    /// <summary>
+    /// <summary> 
     /// Calculates ride fares based on distance, duration, vehicle type, and tariffs.
     /// Supports estimated and final fare calculations with optional night surcharges.
     /// </summary>

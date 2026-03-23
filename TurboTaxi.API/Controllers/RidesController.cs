@@ -23,8 +23,8 @@ namespace TurboTaxi.API.Controllers
         {
             if (!Enum.IsDefined(typeof(VehicleType), request.VehicleType))
             {
-                var valid = string.Join(", ", Enum.GetValues<VehicleType>().Select(v => $"{(int)v}={v}"));
-                return BadRequest(new { error = $"Invalid VehicleType: '{(int)request.VehicleType}'. Valid: {valid}" });
+                var valid = string.Join(", ", Enum.GetValues<VehicleType>().Select(v => $"{v}"));
+                return BadRequest(new { error = $"Invalid VehicleType: '{request.VehicleType}'. Valid: {valid}" });
             }
 
             try

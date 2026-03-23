@@ -121,7 +121,7 @@ namespace TurboTaxi.Infrastructure.Services
                         Name = "Test",
                         Surname = $"User {request.UserId}",
                         PhoneNumber = $"+994{50 + request.UserId}{1000000 + request.UserId}",
-                        Email = $"testuser{request.UserId}@turbotaxi.com",
+                        Email = $"testuser{request.UserId}@turbotaxi.com", 
                         PasswordHash = "TestPassword123!@#",
                         IsActive = true,
                         CreatedTime = DateTime.UtcNow
@@ -211,7 +211,7 @@ namespace TurboTaxi.Infrastructure.Services
 
                 // Calculate estimated fare for display to driver and user
                 decimal estimatedFare = await _fareCalculator.CalculateEstimatedFareAsync(
-                    request.VehicleType,
+                    request.VehicleType.ToString(),
                     distanceKm,
                     durationMin,
                     DateTime.UtcNow);
@@ -223,11 +223,11 @@ namespace TurboTaxi.Infrastructure.Services
                         var driverPayload = new NewRideRequestPayload
                         {
                             RideId = ride.Id,
-                            VehicleType = request.VehicleType,
+                            VehicleType = request.VehicleType.ToString(),
                             PickupLat = request.PickupLat,
                             PickupLng = request.PickupLng,
-                            DestinationLat = request.DestinationLat,
-                            DestinationLng = request.DestinationLng,
+                            DestinationLat = request.DestinationLat ?? 0,
+                            DestinationLng = request.DestinationLng ?? 0,
                             EncodedPolyline = polyline,
                             EstimatedFare = estimatedFare,
                             DistanceKm = distanceKm,

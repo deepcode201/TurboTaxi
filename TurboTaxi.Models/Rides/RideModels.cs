@@ -81,10 +81,10 @@ namespace TurboTaxi.Models.Rides
     {
         public int RideId { get; set; }
         public string VehicleType { get; set; } = null!; // Vehicle category (Eco, Comfort, Premium)
-        public double? PickupLat { get; set; }
-        public double? PickupLng { get; set; }
-        public double? DestinationLat { get; set; }
-        public double? DestinationLng { get; set; }
+        public double PickupLat { get; set; }
+        public double PickupLng { get; set; }
+        public double DestinationLat { get; set; }
+        public double DestinationLng { get; set; }
         public string? EncodedPolyline { get; set; } // Google Maps encoded polyline
         public decimal EstimatedFare { get; set; } // Estimated earnings for driver
         public double? DistanceKm { get; set; } // Distance in kilometers

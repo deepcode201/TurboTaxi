@@ -36,7 +36,7 @@ namespace TurboTaxi.Realtime.Services
 
             // Update Redis with driver location
             var hashKey = RedisKeys.DriverHash(request.DriverId);
-            var status = (request.DriverStatus ?? DriverStatus.Free).ToString();
+            var status = request.DriverStatus?.ToString() ?? DriverStatus.Free.ToString();
             var vehicleTypeString = request.VehicleType.ToString();
 
             var entries = new HashEntry[]
