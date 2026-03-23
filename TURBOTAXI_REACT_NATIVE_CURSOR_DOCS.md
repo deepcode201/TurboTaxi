@@ -8,7 +8,7 @@
 - **Map Visuals:** `react-native-maps` should be used. Smooth animation for driver movement is required. Do NOT call Google Maps Directions API from the app directly during an active ride (Backend handles this to save costs).
 
 ---
-
+   
 ## 🏗️ 2. Domain Models (TypeScript Interfaces)
 
 ```typescript
