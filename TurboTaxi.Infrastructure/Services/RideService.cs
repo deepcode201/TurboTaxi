@@ -10,7 +10,7 @@ using TurboTaxi.Models.Routes;
 using TurboTaxi.Realtime.Redis;
 
 namespace TurboTaxi.Infrastructure.Services
-{
+{ 
     public class RideService : IRideService
     {
         private readonly ApplicationDbContext _db;
