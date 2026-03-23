@@ -38,7 +38,29 @@ export interface ActiveRideResponse {
     durationMinutes: number;
 }
 
+export interface CreateRideResponse {
+    rideId: number;
+    status: RideStatus;
+    candidateDriverIds: number[];
+    estimatedFare: number; // Estimated fare in AZN (e.g., 25.50)
+    distanceKm: number; // Distance in kilometers
+    durationMinutes: number; // Estimated trip duration
+}
+
 // SignalR Payloads
+export interface NewRideRequestPayload {
+    rideId: number;
+    vehicleType: string; // Vehicle category (Eco, Comfort, Premium)
+    pickupLat: number;
+    pickupLng: number;
+    destinationLat: number;
+    destinationLng: number;
+    encodedPolyline: string; // Google Maps encoded polyline
+    estimatedFare: number; // Driver's potential earnings
+    distanceKm: number; // Distance in kilometers
+    durationMinutes: number; // Estimated trip duration
+}
+
 export interface RouteUpdatePayload {
     rideId: number;
     encodedPolyline: string;
@@ -72,7 +94,44 @@ export interface RideCompletionPayload {
 
 ---
 
-## 🌐 3. REST API: App Startup / Crash Recovery
+## 🌐 3. REST API: Ride Creation & App Startup / Crash Recovery
+
+### A. Create Ride Request
+**Endpoint:** `POST /api/rides` (Header: `Authorization: Bearer <JWT>`)
+
+**Request Body:**
+```json
+{
+  "pickupLat": 40.3869,
+  "pickupLng": 49.8671,
+  "destinationLat": 40.4093,
+  "destinationLng": 49.9214,
+  "vehicleType": "Eco",
+  "userId": 1
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "rideId": 123,
+  "status": "Pending",
+  "candidateDriverIds": [5, 10, 15],
+  "estimatedFare": 25.50,
+  "distanceKm": 12.5,
+  "durationMinutes": 18
+}
+```
+
+**Action (User App):**
+1. Display the estimated fare, distance, and duration on the UI before confirmation.
+2. Show this info: `"Estimated fare: 25.50 AZN | Distance: 12.5 km | Duration: ~18 min"`
+3. Store the `rideId` in app state.
+4. Connect to SignalR immediately to listen for `RideStatusUpdated` (when driver accepts).
+
+---
+
+### B. App Startup / Crash Recovery
 
 If the app reloads, crashes, or opens from a background state, the client must NOT depend solely on SignalR to catch up. It must execute a state hydration request.
 
@@ -101,6 +160,32 @@ Drivers must send their live GPS location **every 3 to 5 seconds** while the rid
 - **Cursor Instruction:** Use `react-native-geolocation-service`. Do not use HTTP POST for ongoing tracking; broadcast strictly via the active SignalR connection.
 
 ### C. Listening to Events (Server -> Client)
+
+#### Event 0: `NewRideRequest` (Driver App Only) ⭐ **NEW**
+- Triggered when a user creates a new ride and nearby drivers are available.
+- **Payload:** `NewRideRequestPayload`
+```typescript
+{
+  rideId: 123;
+  vehicleType: "Eco";
+  pickupLat: 40.3869;
+  pickupLng: 49.8671;
+  destinationLat: 40.4093;
+  destinationLng: 49.9214;
+  encodedPolyline: "..."; // Google Maps encoded polyline
+  estimatedFare: 25.50; // Driver's potential earnings
+  distanceKm: 12.5;
+  durationMinutes: 18;
+}
+```
+- **Action (Driver App):**
+  1. Display ride notification with key info: **Fare**, **Distance**, **Duration**, **Vehicle Category**.
+  2. Example UI: `"🚗 Eco Ride | Earn 25.50 AZN | 12.5 km | ~18 min"`.
+  3. Parse `encodedPolyline` and show route preview on map.
+  4. Present "Accept" / "Decline" buttons.
+  5. On Accept → Call `POST /api/rides/{rideId}/accept`.
+
+---
 
 #### Event 1: `DriverLocationUpdated` (User App Only)
 - Triggered when the driver emits their location.

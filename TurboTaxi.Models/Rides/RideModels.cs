@@ -15,6 +15,9 @@ namespace TurboTaxi.Models.Rides
         public int RideId { get; set; }
         public string Status { get; set; } = null!;
         public List<int> CandidateDriverIds { get; set; } = new();
+        public decimal EstimatedFare { get; set; } // Estimated fare in AZN
+        public double? DistanceKm { get; set; } // Estimated distance in kilometers
+        public int? DurationMinutes { get; set; } // Estimated duration in minutes
     }
 
     public class AcceptRideRequest
@@ -69,6 +72,21 @@ namespace TurboTaxi.Models.Rides
     {
         public int RideId { get; set; }
         public string Status { get; set; } = null!;
+    }
+
+    // SignalR Payload for Driver - sent when new ride request arrives
+    public class NewRideRequestPayload
+    {
+        public int RideId { get; set; }
+        public string VehicleType { get; set; } = null!; // Vehicle category (Eco, Comfort, Premium)
+        public double? PickupLat { get; set; }
+        public double? PickupLng { get; set; }
+        public double? DestinationLat { get; set; }
+        public double? DestinationLng { get; set; }
+        public string? EncodedPolyline { get; set; } // Google Maps encoded polyline
+        public decimal EstimatedFare { get; set; } // Estimated earnings for driver
+        public double? DistanceKm { get; set; } // Distance in kilometers
+        public int? DurationMinutes { get; set; } // Estimated trip duration
     }
 
     // SignalR Payload for Ride Completion - sent to both User and Driver
