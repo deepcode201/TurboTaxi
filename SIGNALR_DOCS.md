@@ -1,6 +1,36 @@
 # TurboTaxi — SignalR Real-Time Documentation
-> React Native Developer Guide  
+> React Native Developer Guide  \
 > Branch: `SignalRModify` | Base URL: `https://YOUR_SERVER/hubs/driver`
+
+---
+
+## 🔍 Hub Overview
+
+**Hub:** `DriverHub` (`/hubs/driver`)
+
+**Server methods (client → server):**
+- `SubscribeUser(userId: string)` – join `user:{userId}` group
+- `UnsubscribeUser(userId: string)` – leave `user:{userId}` group
+- `SubscribeDriver(driverId: string)` – join `driver:{driverId}` group
+- `UnsubscribeDriver(driverId: string)` – leave `driver:{driverId}` group
+- `UpdateLocation(request: DriverLocationUpdateRequest)` – primary real-time driver GPS update
+
+**Client methods (server → client):**
+- `DriverLocationUpdated(driverId: number, lat: number, lng: number)`
+- `NewRideRequest(requestId: string, payload: object)`
+- `RideStatusUpdated(rideId: number, status: string, payload: object)`
+
+**`DriverLocationUpdateRequest` shape (SignalR + REST):**
+
+```json
+{
+  "driverId": 3,
+  "lat": 40.3810,
+  "lng": 49.8911,
+  "vehicleType": 0,      // 0=Eco, 1=Business, 2=XL, 3=Delivery
+  "statusOptional": 1    // 0=Offline, 1=Free, 2=Busy, 3=BusySoon
+}
+```
 
 ---
 

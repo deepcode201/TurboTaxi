@@ -17,6 +17,7 @@ namespace TurboTaxi.Infrastructure.Services
         private readonly IRedisService _redis;
         private readonly IRideNotificationService _notification;
         private readonly IRouteEstimationService _routeEstimation;
+        private readonly IFareCalculatorService _fareCalculator;
         private readonly ILogger<RideService> _logger;
 
         public RideService(
@@ -24,12 +25,14 @@ namespace TurboTaxi.Infrastructure.Services
             IRedisService redis,
             IRideNotificationService notification,
             IRouteEstimationService routeEstimation,
+            IFareCalculatorService fareCalculator,
             ILogger<RideService> logger)
         {
             _db = db;
             _redis = redis;
             _notification = notification;
             _routeEstimation = routeEstimation;
+            _fareCalculator = fareCalculator;
             _logger = logger;
         }
 
@@ -206,38 +209,32 @@ namespace TurboTaxi.Infrastructure.Services
                 // Notify drivers
                 _logger.LogInformation($"?? Notifying {candidateIds.Count} available drivers");
 
-                var notifyIds = new List<int>();
-                foreach (var driverId in candidateIds)
-                {
-                    try
-                    {
-                        var key = $"notify:ride:{ride.Id}:driver:{driverId}";
-                        var firstTime = await _redis.SetStringIfNotExistsAsync(key, "1", TimeSpan.FromHours(6));
-                        if (firstTime) notifyIds.Add(driverId);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, $"Failed to set notification key for driver #{driverId}");
-                    }
-                }
+                // Calculate estimated fare for display to driver and user
+                decimal estimatedFare = await _fareCalculator.CalculateEstimatedFareAsync(
+                    request.VehicleType,
+                    distanceKm,
+                    durationMin,
+                    DateTime.UtcNow);
 
-                if (notifyIds.Count > 0)
+                if (candidateIds.Count > 0)
                 {
                     try
                     {
-                        await _notification.NotifyNearestDriversAsync(notifyIds, new
+                        var driverPayload = new NewRideRequestPayload
                         {
                             RideId = ride.Id,
+                            VehicleType = request.VehicleType,
                             PickupLat = request.PickupLat,
                             PickupLng = request.PickupLng,
                             DestinationLat = request.DestinationLat,
                             DestinationLng = request.DestinationLng,
-                            VehicleType = request.VehicleType.ToString(),
                             EncodedPolyline = polyline,
+                            EstimatedFare = estimatedFare,
                             DistanceKm = distanceKm,
                             DurationMinutes = durationMin
-                        });
-                        _logger.LogInformation($"? Notified {notifyIds.Count} drivers");
+                        };
+                        await _notification.NotifyNearestDriversAsync(candidateIds, driverPayload);
+                        _logger.LogInformation($"? Notified {candidateIds.Count} drivers with ride #{ride.Id} (fare: {estimatedFare:F2} AZN, distance: {distanceKm:F2}km)");
                     }
                     catch (Exception ex)
                     {
@@ -259,6 +256,7 @@ namespace TurboTaxi.Infrastructure.Services
                         EncodedPolyline = polyline,
                         DistanceKm = distanceKm,
                         DurationMinutes = durationMin,
+                        EstimatedFare = estimatedFare,
                         Message = "Searching for nearby drivers..."
                     });
                 }
@@ -273,7 +271,10 @@ namespace TurboTaxi.Infrastructure.Services
                 {
                     RideId = ride.Id,
                     Status = ride.Status.ToString(),
-                    CandidateDriverIds = candidateIds
+                    CandidateDriverIds = candidateIds,
+                    EstimatedFare = estimatedFare,
+                    DistanceKm = distanceKm,
+                    DurationMinutes = durationMin
                 };
             }
             catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("FK_Rides_Users_UserId") == true)
@@ -644,16 +645,17 @@ namespace TurboTaxi.Infrastructure.Services
             // Notify user
             try
             {
-                await _notification.NotifyUserAsync(ride.UserId, new
+                var userPayload = new RideCompletionPayload
                 {
                     RideId = ride.Id,
                     Status = ride.Status.ToString(),
-                    FinalPrice = ride.ActualFare,
-                    CompletedAt = ride.CompletedTime,
+                    FinalPrice = ride.ActualFare.Value,
+                    CompletedAtUtc = ride.CompletedTime.Value,
                     ClearMap = true,
-                    EncodedPolyline = (string?)null,
-                    Message = $"Trip completed! Total: {ride.ActualFare:F2} AZN. Thank you!"
-                });
+                    Message = $"Trip completed! Total: {ride.ActualFare:F2} AZN. Thank you!",
+                    UserType = "user"
+                };
+                await _notification.NotifyUserAsync(ride.UserId, userPayload);
             }
             catch (Exception ex)
             {
@@ -663,16 +665,17 @@ namespace TurboTaxi.Infrastructure.Services
             // Notify driver
             try
             {
-                await _notification.NotifyDriverAsync(request.DriverId, new
+                var driverPayload = new RideCompletionPayload
                 {
                     RideId = ride.Id,
                     Status = ride.Status.ToString(),
-                    FinalPrice = ride.ActualFare,
-                    CompletedAt = ride.CompletedTime,
+                    FinalPrice = ride.ActualFare.Value,
+                    CompletedAtUtc = ride.CompletedTime.Value,
                     ClearMap = true,
-                    EncodedPolyline = (string?)null,
-                    Message = $"Trip completed! You earned {ride.ActualFare:F2} AZN"
-                });
+                    Message = $"Trip completed! You earned {ride.ActualFare:F2} AZN",
+                    UserType = "driver"
+                };
+                await _notification.NotifyDriverAsync(request.DriverId, driverPayload);
             }
             catch (Exception ex)
             {
@@ -743,17 +746,21 @@ namespace TurboTaxi.Infrastructure.Services
             ride.CanceledTime = DateTime.UtcNow;
             await _db.SaveChangesAsync(ct);
 
-            // If pending and no driver, notify all drivers
+            // If pending and no driver, notify all drivers and clean up notification keys
             if (prevStatus == RideStatus.Pending && !ride.DriverId.HasValue)
             {
                 try
                 {
+                    // Clean up any notification keys for this ride
+                    await _redis.DeleteKeysByPatternAsync($"notify:ride:{rideId}:driver:*");
+                    _logger.LogInformation($"? Cleaned up notification keys for ride #{rideId}");
+
                     await _notification.NotifyAllDriversRideCanceled(rideId);
                     _logger.LogInformation($"? All drivers notified about ride #{rideId} cancellation");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Failed to notify drivers");
+                    _logger.LogError(ex, "Failed to notify drivers or clean up keys");
                 }
             }
 
