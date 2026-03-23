@@ -36,7 +36,7 @@ export interface ActiveRideResponse {
     routePolyline: string; // Encoded Google Maps Polyline
     distanceKm: number;
     durationMinutes: number;
-}
+}  
 
 export interface CreateRideResponse {
     rideId: number;
