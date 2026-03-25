@@ -39,6 +39,8 @@ namespace TurboTaxi.Realtime.Services
             var status = request.DriverStatus?.ToString() ?? DriverStatus.Free.ToString();
             var vehicleTypeString = request.VehicleType.ToString();
 
+            _logger.LogInformation($"   Storing to Redis: status='{status}' (from DriverStatus={request.DriverStatus}), vehicleType='{vehicleTypeString}', updatedAt='{updatedAt:O}'");
+
             var entries = new HashEntry[]
             {
                 new("lat", request.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)),
@@ -48,11 +50,13 @@ namespace TurboTaxi.Realtime.Services
                 new("updatedAt", updatedAt.ToString("o"))
             };
             await _redis.HashSetAsync(hashKey, entries);
+            _logger.LogInformation($"   ✓ Driver #{request.DriverId} hash updated in Redis: {hashKey}");
 
             // Update geo-spatial index
             var vt = vehicleTypeString.ToLowerInvariant();
             var geoKey = $"geo:drivers:{vt}";
             await _redis.GeoAddAsync(geoKey, request.Longitude, request.Latitude, member: request.DriverId.ToString());
+            _logger.LogInformation($"   ✓ Driver #{request.DriverId} geo-spatial index updated: {geoKey}");
 
             // Update heartbeat
             var heartbeatKey = RedisKeys.DriverHeartbeat(request.DriverId);

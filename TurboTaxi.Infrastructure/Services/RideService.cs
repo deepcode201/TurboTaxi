@@ -184,21 +184,60 @@ namespace TurboTaxi.Infrastructure.Services
                 var candidateIds = new List<int>();
                 var cutoff = DateTime.UtcNow.AddSeconds(-60);
 
+                _logger.LogInformation($"   Cutoff time for driver check: {cutoff:O} (UTC now: {DateTime.UtcNow:O})");
+
                 foreach (var r in nearbyDrivers)
                 {
                     try
                     {
                         var did = int.Parse(r.Member);
-                        var h = await _redis.HashGetAllAsync(RedisKeys.DriverHash(did));  
+                        var h = await _redis.HashGetAllAsync(RedisKeys.DriverHash(did));
+
+                        if (h.Length == 0)
+                        {
+                            _logger.LogWarning($"   ⚠️ Driver #{did} has no data in Redis hash!");
+                            continue;
+                        }
+
                         var d = h.ToDictionary(x => x.Name.ToString(), x => x.Value.ToString());
 
-                        if (d.TryGetValue("status", out var status) && status == "Free" &&
-                            d.TryGetValue("updatedAt", out var updatedStr) &&
-                            DateTime.TryParse(updatedStr, out var upd) && upd > cutoff)
+                        _logger.LogInformation($"   Driver #{did} data: status='{d.GetValueOrDefault("status")}', updatedAt='{d.GetValueOrDefault("updatedAt")}', lat='{d.GetValueOrDefault("lat")}', lng='{d.GetValueOrDefault("lng")}'");
+
+                        var hasStatus = d.TryGetValue("status", out var status);
+                        var hasUpdatedAt = d.TryGetValue("updatedAt", out var updatedStr);
+
+                        if (!hasStatus)
                         {
-                            candidateIds.Add(did);
-                            _logger.LogInformation($"   ? Driver #{did} is available");
+                            _logger.LogWarning($"   ⚠️ Driver #{did} missing 'status' field");
+                            continue;
                         }
+
+                        if (status != "Free")
+                        {
+                            _logger.LogInformation($"   ⏸️ Driver #{did} not free (status='{status}')");
+                            continue;
+                        }
+
+                        if (!hasUpdatedAt)
+                        {
+                            _logger.LogWarning($"   ⚠️ Driver #{did} missing 'updatedAt' field");
+                            continue;
+                        }
+
+                        if (!DateTime.TryParse(updatedStr, out var upd))
+                        {
+                            _logger.LogWarning($"   ⚠️ Driver #{did} invalid updatedAt format: '{updatedStr}'");
+                            continue;
+                        }
+
+                        if (upd <= cutoff)
+                        {
+                            _logger.LogInformation($"   ⏱️ Driver #{did} stale (updatedAt={upd:O} ≤ {cutoff:O})");
+                            continue;
+                        }
+
+                        candidateIds.Add(did);
+                        _logger.LogInformation($"   ✓ Driver #{did} is AVAILABLE");
                     }
                     catch (Exception ex)
                     {
