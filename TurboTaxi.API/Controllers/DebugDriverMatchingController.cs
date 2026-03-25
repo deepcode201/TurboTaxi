@@ -163,6 +163,11 @@ namespace TurboTaxi.API.Controllers
 
                 var data = hash.ToDictionary(x => x.Name.ToString(), x => x.Value.ToString());
 
+                // Parse lat/lng to check for 0 values
+                var lat = data.GetValueOrDefault("lat");
+                var lng = data.GetValueOrDefault("lng");
+                var isZeroCoordinates = lat == "0" && lng == "0";
+
                 // Also check geo indices
                 var geoData = new Dictionary<string, object>();
                 foreach (VehicleType vt in Enum.GetValues(typeof(VehicleType)))
@@ -178,8 +183,17 @@ namespace TurboTaxi.API.Controllers
                 return Ok(new
                 {
                     driverId,
+                    warning = isZeroCoordinates ? "⚠️ CRITICAL: Driver coordinates are (0, 0) - Location mapping is BROKEN!" : null,
                     redisHash = data,
-                    geoIndices = geoData
+                    geoIndices = geoData,
+                    diagnostics = new
+                    {
+                        hasLocation = !isZeroCoordinates,
+                        coordinatesAreZero = isZeroCoordinates,
+                        inGeoIndex = geoData.Count > 0,
+                        statusValue = data.GetValueOrDefault("status"),
+                        updatedAt = data.GetValueOrDefault("updatedAt")
+                    }
                 });
             }
             catch (Exception ex)

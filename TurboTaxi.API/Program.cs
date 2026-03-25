@@ -24,7 +24,7 @@ try
 
     builder.Services.AddControllers();
 
-    // SignalR
+    // SignalR with proper JSON deserialization for parameter binding
     builder.Services.AddSignalR(options =>
     {
         options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
@@ -32,8 +32,17 @@ try
         options.KeepAliveInterval = TimeSpan.FromSeconds(15);
         options.EnableDetailedErrors = builder.Environment.IsDevelopment();
         options.MaximumReceiveMessageSize = 102400;
+    })
+    .AddJsonProtocol(options =>
+    {
+        // 🔧 FIX: Make JSON deserialization case-insensitive
+        // SignalR sends camelCase (latitude, longitude) but C# properties are PascalCase (Latitude, Longitude)
+        // This ensures both "latitude" and "Latitude" fields map to the Latitude property
+        options.PayloadSerializerOptions.PropertyNameCaseInsensitive = true;
+
+        Console.WriteLine("[STARTUP] SignalR JSON Protocol: PropertyNameCaseInsensitive = true");
     });
-    Console.WriteLine("[STARTUP] SignalR configured");
+    Console.WriteLine("[STARTUP] SignalR configured with JSON protocol fix");
 
     // CORS
     builder.Services.AddCors(options =>

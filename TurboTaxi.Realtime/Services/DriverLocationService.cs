@@ -32,14 +32,35 @@ namespace TurboTaxi.Realtime.Services
         public async Task UpdateAsync(DriverLocationUpdateRequest request, CancellationToken ct = default)
         {
             var updatedAt = DateTime.UtcNow;
-            _logger.LogInformation($"?? Driver #{request.DriverId} location update: ({request.Latitude}, {request.Longitude})");
+
+            // 🔍 RECEIVED VALUES
+            _logger.LogInformation(
+                "📍 UpdateAsync RECEIVED: DriverId={DriverId}, Lat={Latitude}, Lng={Longitude}, VehicleType={VehicleType}, Status={DriverStatus}",
+                request.DriverId,
+                request.Latitude,
+                request.Longitude,
+                request.VehicleType,
+                request.DriverStatus);
+
+            // 🔴 CRITICAL CHECK
+            if (request.Latitude == 0 && request.Longitude == 0)
+            {
+                _logger.LogError(
+                    "❌ CRITICAL: Driver #{DriverId} location is (0, 0) - This will BREAK geo-spatial matching!",
+                    request.DriverId);
+            }
 
             // Update Redis with driver location
             var hashKey = RedisKeys.DriverHash(request.DriverId);
             var status = request.DriverStatus?.ToString() ?? DriverStatus.Free.ToString();
             var vehicleTypeString = request.VehicleType.ToString();
 
-            _logger.LogInformation($"   Storing to Redis: status='{status}' (from DriverStatus={request.DriverStatus}), vehicleType='{vehicleTypeString}', updatedAt='{updatedAt:O}'");
+            _logger.LogInformation(
+                "   💾 Storing to Redis: status='{status}' (from enum={DriverStatus}), vehicleType='{vehicleType}', updatedAt='{updatedAt:O}'",
+                status,
+                request.DriverStatus,
+                vehicleTypeString,
+                updatedAt);
 
             var entries = new HashEntry[]
             {
@@ -49,14 +70,24 @@ namespace TurboTaxi.Realtime.Services
                 new("vehicleType", vehicleTypeString),
                 new("updatedAt", updatedAt.ToString("o"))
             };
+
             await _redis.HashSetAsync(hashKey, entries);
-            _logger.LogInformation($"   ✓ Driver #{request.DriverId} hash updated in Redis: {hashKey}");
+            _logger.LogInformation(
+                "   ✅ Stored to Redis hash: {hashKey} with Lat={Lat}, Lng={Lng}",
+                hashKey,
+                request.Latitude,
+                request.Longitude);
 
             // Update geo-spatial index
             var vt = vehicleTypeString.ToLowerInvariant();
             var geoKey = $"geo:drivers:{vt}";
             await _redis.GeoAddAsync(geoKey, request.Longitude, request.Latitude, member: request.DriverId.ToString());
-            _logger.LogInformation($"   ✓ Driver #{request.DriverId} geo-spatial index updated: {geoKey}");
+            _logger.LogInformation(
+                "   ✅ Added to geo-spatial index: {geoKey} (Lng={Lng}, Lat={Lat}, MemberId={MemberId})",
+                geoKey,
+                request.Longitude,
+                request.Latitude,
+                request.DriverId);
 
             // Update heartbeat
             var heartbeatKey = RedisKeys.DriverHeartbeat(request.DriverId);
