@@ -38,6 +38,7 @@ namespace TurboTaxi.Realtime.Hubs
         /// <summary>
         /// Real-time driver location update over SignalR.
         /// This is equivalent to calling the REST endpoint /api/driver/location.
+        /// 🔧 AUTO-SUBSCRIBE: Driver automatically subscribes to their own group on first update.
         /// </summary>
         public async Task UpdateLocation(DriverLocationUpdateRequest request)
         {
@@ -67,6 +68,19 @@ namespace TurboTaxi.Realtime.Hubs
                 _logger.LogError(
                     "[SignalR] ❌ CRITICAL: Driver #{DriverId} sent coordinates (0, 0) - Location mapping is BROKEN!",
                     request.DriverId);
+            }
+
+            // 🔧 AUTO-SUBSCRIBE: Ensure driver is subscribed to their own group
+            // This guarantees that NewRideRequest events will reach the driver
+            try
+            {
+                var driverGroupName = $"driver:{request.DriverId}";
+                await Groups.AddToGroupAsync(Context.ConnectionId, driverGroupName);
+                _logger.LogInformation($"[SignalR] Driver #{request.DriverId} auto-subscribed to group '{driverGroupName}'");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"[SignalR] Failed to auto-subscribe driver #{request.DriverId}");
             }
 
             await _driverLocationService.UpdateAsync(request, Context.ConnectionAborted);
