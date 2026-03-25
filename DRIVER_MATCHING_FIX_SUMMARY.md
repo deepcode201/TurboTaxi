@@ -136,7 +136,7 @@ GET http://localhost:5000/api/debug/driver-matching/driver/3
 **Fix:** Driver must call UpdateLocation endpoint at least once per 60 seconds
 **Check:** Debug endpoint #3 shows recent updatedAt? (within last 60 seconds)
 
-### Issue 4: Hash Fields Missing
+### Issue 4: Hash Fields Missing 
 **Likelihood:** Low
 **Why:** UpdateAsync might have crashed before HashSetAsync
 **Check:** Debug endpoint #3 - hash has all fields? (status, lat, lng, updatedAt, vehicleType)

@@ -43,19 +43,31 @@ namespace TurboTaxi.Realtime.Hubs
         {
             if (request == null)
             {
+                _logger.LogError("[SignalR] UpdateLocation received NULL request!");
                 throw new ArgumentNullException(nameof(request));
             }
 
             if (request.DriverId <= 0)
             {
+                _logger.LogError("[SignalR] UpdateLocation received invalid DriverId: {DriverId}", request.DriverId);
                 throw new HubException("DriverId must be greater than 0.");
             }
 
             _logger.LogInformation(
-                "[SignalR] Driver #{DriverId} location update via hub: ({Lat}, {Lng})",
+                "[SignalR] UpdateLocation RECEIVED: DriverId={DriverId}, Latitude={Latitude}, Longitude={Longitude}, VehicleType={VehicleType}, DriverStatus={DriverStatus}",
                 request.DriverId,
                 request.Latitude,
-                request.Longitude);
+                request.Longitude,
+                request.VehicleType,
+                request.DriverStatus);
+
+            // 🔴 CRITICAL CHECK: Are coordinates 0?
+            if (request.Latitude == 0 && request.Longitude == 0)
+            {
+                _logger.LogError(
+                    "[SignalR] ❌ CRITICAL: Driver #{DriverId} sent coordinates (0, 0) - Location mapping is BROKEN!",
+                    request.DriverId);
+            }
 
             await _driverLocationService.UpdateAsync(request, Context.ConnectionAborted);
         }
