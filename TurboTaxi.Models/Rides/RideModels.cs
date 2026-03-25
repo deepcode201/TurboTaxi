@@ -49,7 +49,9 @@ namespace TurboTaxi.Models.Rides
     public class FinishRideRequest
     {
         public int DriverId { get; set; }
-        public decimal FinalPrice { get; set; }
+        // 🔧 Optional: FinalPrice no longer used
+        // System uses EstimatedFare set at ride creation time
+        public decimal? FinalPrice { get; set; }
     }
 
     public class RideFinishedResponse
