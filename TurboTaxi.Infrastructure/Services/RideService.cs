@@ -121,7 +121,7 @@ namespace TurboTaxi.Infrastructure.Services
                         Name = "Test",
                         Surname = $"User {request.UserId}",
                         PhoneNumber = $"+994{50 + request.UserId}{1000000 + request.UserId}",
-                        Email = $"testuser{request.UserId}@turbotaxi.com", 
+                        Email = $"testuser{request.UserId}@turbotaxi.com",
                         PasswordHash = "TestPassword123!@#",
                         IsActive = true,
                         CreatedTime = DateTime.UtcNow
