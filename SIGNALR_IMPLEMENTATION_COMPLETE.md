@@ -125,7 +125,7 @@ const userHub = new HubConnectionBuilder()
   .build();
 
 await userHub.start();
-await userHub.invoke("SubscribeUser", "10"); // user ID = "10"
+await userHub.invoke("SubscribeUser", "10"); // user ID = "10" 
 ```
 
 ---
