@@ -99,14 +99,20 @@ try
     // CORS
     app.UseCors("AllowAll");
 
+    // WebSockets (required for SignalR)
+    app.UseWebSockets();
+    Console.WriteLine("[STARTUP] WebSockets enabled");
+
     // Authentication/Authorization
     app.UseAuthorization();
 
     // Controllers
     app.MapControllers();
 
-    // SignalR Hub
+    // SignalR Hubs
     app.MapHub<DriverHub>("/hubs/driver").RequireCors("AllowAll");
+    app.MapHub<UserHub>("/hubs/user").RequireCors("AllowAll");
+    Console.WriteLine("[STARTUP] SignalR hubs mapped: /hubs/driver, /hubs/user");
 
     Console.WriteLine("[STARTUP] Middleware configured");
 
