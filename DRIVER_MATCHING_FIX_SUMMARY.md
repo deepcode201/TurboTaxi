@@ -125,7 +125,7 @@ GET http://localhost:5000/api/debug/driver-matching/driver/3
 ### Issue 2: GeoRadiusAsync Returns 0 Drivers
 **Likelihood:** High
 **Why:** Geo-spatial index might not be populated
-**Check:** 
+**Check:**  
 1. Step 1: GET /api/debug/driver-matching/drivers/0 - Returns empty?
 2. Check logs: "✓ Driver #X geo-spatial index updated" present?
 3. Are drivers actually connected and sending location?
