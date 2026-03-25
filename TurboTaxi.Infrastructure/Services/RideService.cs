@@ -653,14 +653,14 @@ namespace TurboTaxi.Infrastructure.Services
                 throw new InvalidOperationException($"Driver mismatch");
             }
 
-            // Update ride
+            // Update ride - Use EstimatedFare as final price
             ride.Status = RideStatus.Completed;
             ride.CompletedTime = DateTime.UtcNow;
-            ride.ActualFare = request.FinalPrice;
+            ride.ActualFare = ride.EstimatedFare ?? 0;  // 🔧 Use estimated fare, not driver input
 
             await _db.SaveChangesAsync(ct);
 
-            _logger.LogInformation($"? Ride #{rideId} completed - Fare: {request.FinalPrice} AZN");
+            _logger.LogInformation($"✓ Ride #{rideId} completed - Fare: {ride.ActualFare:F2} AZN (estimated at creation)");
 
             // Update driver status in Redis
             try
@@ -674,14 +674,14 @@ namespace TurboTaxi.Infrastructure.Services
                 await _redis.HashDeleteAsync(hKey, "currentRideId");
                 await _redis.HashDeleteAsync(hKey, "currentUserId");
 
-                _logger.LogInformation($"? Driver #{request.DriverId} status ? Free");
+                _logger.LogInformation($"✓ Driver #{request.DriverId} status → Free");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to update driver #{request.DriverId} status in Redis");
             }
 
-            // Notify user
+            // 🔧 Notify user with ride completion details
             try
             {
                 var userPayload = new RideCompletionPayload
@@ -691,10 +691,11 @@ namespace TurboTaxi.Infrastructure.Services
                     FinalPrice = ride.ActualFare.Value,
                     CompletedAtUtc = ride.CompletedTime.Value,
                     ClearMap = true,
-                    Message = $"Trip completed! Total: {ride.ActualFare:F2} AZN. Thank you!",
+                    Message = $"✓ Trip completed! Total: {ride.ActualFare:F2} AZN. Thank you!",
                     UserType = "user"
                 };
                 await _notification.NotifyUserAsync(ride.UserId, userPayload);
+                _logger.LogInformation($"✓ User #{ride.UserId} notified about ride completion");
             }
             catch (Exception ex)
             {
@@ -711,7 +712,7 @@ namespace TurboTaxi.Infrastructure.Services
                     FinalPrice = ride.ActualFare.Value,
                     CompletedAtUtc = ride.CompletedTime.Value,
                     ClearMap = true,
-                    Message = $"Trip completed! You earned {ride.ActualFare:F2} AZN",
+                    Message = $"✓ Trip completed! You earned {ride.ActualFare:F2} AZN",
                     UserType = "driver"
                 };
                 await _notification.NotifyDriverAsync(request.DriverId, driverPayload);
@@ -751,6 +752,11 @@ namespace TurboTaxi.Infrastructure.Services
 
             var prevStatus = ride.Status;
 
+            // Update ride status FIRST
+            ride.Status = RideStatus.Canceled;
+            ride.CanceledTime = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+
             // Free driver if assigned
             if (ride.DriverId.HasValue)
             {
@@ -765,25 +771,23 @@ namespace TurboTaxi.Infrastructure.Services
                     await _redis.HashDeleteAsync(hKey, "currentRideId");
                     await _redis.HashDeleteAsync(hKey, "currentUserId");
 
-                    await _notification.NotifyDriverAsync(ride.DriverId.Value, new
+                    // 🔧 FIX: Notify driver with RideStatusUpdated (not just NotifyDriver)
+                    var driverCancelPayload = new RideCompletionPayload
                     {
                         RideId = ride.Id,
-                        Status = "CanceledByUser",
+                        Status = ride.Status.ToString(),
                         ClearMap = true,
                         Message = "User canceled this ride"
-                    });
+                    };
+                    await _notification.NotifyDriverAsync(ride.DriverId.Value, driverCancelPayload);
 
-                    _logger.LogInformation($"? Driver #{ride.DriverId} freed from ride #{rideId}");
+                    _logger.LogInformation($"✓ Driver #{ride.DriverId} notified about cancellation and freed from ride #{rideId}");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, $"Failed to free driver #{ride.DriverId}");
+                    _logger.LogError(ex, $"Failed to free driver #{ride.DriverId} or send notification");
                 }
             }
-
-            ride.Status = RideStatus.Canceled;
-            ride.CanceledTime = DateTime.UtcNow;
-            await _db.SaveChangesAsync(ct);
 
             // If pending and no driver, notify all drivers and clean up notification keys
             if (prevStatus == RideStatus.Pending && !ride.DriverId.HasValue)
@@ -803,7 +807,7 @@ namespace TurboTaxi.Infrastructure.Services
                 }
             }
 
-            _logger.LogInformation($"? Ride #{rideId} canceled by user");
+            _logger.LogInformation($"✓ Ride #{rideId} canceled by user #{request.UserId}");
 
             return new CancelRideResponse
             {
@@ -827,6 +831,11 @@ namespace TurboTaxi.Infrastructure.Services
             if (ride.Status == RideStatus.Completed)
                 throw new InvalidOperationException($"Cannot cancel completed ride");
 
+            // Update ride status FIRST
+            ride.Status = RideStatus.Canceled;
+            ride.CanceledTime = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+
             // Free driver
             try
             {
@@ -839,35 +848,38 @@ namespace TurboTaxi.Infrastructure.Services
                 await _redis.HashDeleteAsync(hKey, "currentRideId");
                 await _redis.HashDeleteAsync(hKey, "currentUserId");
 
-                _logger.LogInformation($"? Driver #{request.DriverId} status ? Free");
+                _logger.LogInformation($"✓ Driver #{request.DriverId} status → Free");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to update driver #{request.DriverId} status");
             }
 
-            ride.Status = RideStatus.Canceled;
-            ride.CanceledTime = DateTime.UtcNow;
-            await _db.SaveChangesAsync(ct);
-
-            // Notify user
+            // 🔧 FIX: Notify BOTH user and driver with RideStatusUpdated
             try
             {
-                await _notification.NotifyUserAsync(ride.UserId, new
+                var cancelPayload = new RideCompletionPayload
                 {
                     RideId = ride.Id,
                     Status = ride.Status.ToString(),
-                    CanceledBy = "Driver",
                     ClearMap = true,
                     Message = "Driver canceled this ride. Searching for new driver..."
-                });
+                };
+
+                // Notify user
+                await _notification.NotifyUserAsync(ride.UserId, cancelPayload);
+                _logger.LogInformation($"✓ User #{ride.UserId} notified about ride cancellation");
+
+                // Notify driver (self-notification for consistency)
+                await _notification.NotifyDriverAsync(request.DriverId, cancelPayload);
+                _logger.LogInformation($"✓ Driver #{request.DriverId} notified about cancellation");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to notify user #{ride.UserId}");
+                _logger.LogError(ex, $"Failed to notify user/driver about cancellation");
             }
 
-            _logger.LogInformation($"? Ride #{rideId} canceled by driver");
+            _logger.LogInformation($"✓ Ride #{rideId} canceled by driver #{request.DriverId}");
 
             return new CancelRideResponse
             {

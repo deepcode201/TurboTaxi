@@ -187,8 +187,10 @@
                 
                 <button id="driverConnect">Connect to SignalR</button>
                 <button id="driverUpdateLocation" disabled style="margin-top: 8px;">Update Location</button>
+                <button id="finishRide" disabled style="margin-top: 8px; background: #20c997;">Finish Ride</button>
+                <button id="cancelRideDriver" disabled style="margin-top: 8px; background: #dc3545;">Cancel Ride (Driver)</button>
                 <button id="driverDisconnect" disabled style="margin-top: 8px; background: #dc3545;">Disconnect</button>
-                
+
                 <div class="log" id="driverLog"></div>
             </div>
             
@@ -236,7 +238,8 @@
                 <button id="createRide">Create Ride</button>
                 <button id="acceptRide" disabled style="margin-top: 8px; background: #28a745;">Accept (Auto)</button>
                 <button id="startRide" disabled style="margin-top: 8px; background: #17a2b8;">Start Ride</button>
-                
+                <button id="cancelRideUser" disabled style="margin-top: 8px; background: #dc3545;">Cancel Ride (User)</button>
+
                 <div class="log" id="userLog"></div>
             </div>
         </div>
@@ -412,6 +415,8 @@
                     addLog('userLog', `✅ Ride accepted: ${JSON.stringify(data)}`, 'success');
                     document.getElementById('acceptRide').disabled = true;
                     document.getElementById('startRide').disabled = false;
+                    document.getElementById('cancelRideUser').disabled = false;
+                    document.getElementById('cancelRideDriver').disabled = false;
                 } else {
                     addLog('userLog', `❌ Error: ${data.error || data.message}`, 'error');
                 }
@@ -436,6 +441,9 @@
                 if (response.ok) {
                     addLog('userLog', `✅ Ride started: ${JSON.stringify(data)}`, 'success');
                     document.getElementById('startRide').disabled = true;
+                    document.getElementById('finishRide').disabled = false;  // Enable finish button
+                    document.getElementById('cancelRideUser').disabled = false;
+                    document.getElementById('cancelRideDriver').disabled = false;
                 } else {
                     addLog('userLog', `❌ Error: ${data.error || data.message}`, 'error');
                 }
@@ -443,7 +451,88 @@
                 addLog('userLog', `❌ Error: ${ex.message}`, 'error');
             }
         });
-        
+
+        // 🔧 CANCEL RIDE BY USER
+        document.getElementById('cancelRideUser').addEventListener('click', async () => {
+            if (!currentRideId) return alert('No active ride');
+            const userId = parseInt(document.getElementById('userId').value);
+
+            try {
+                addLog('userLog', `📤 Canceling ride #${currentRideId} (user)...`, 'info');
+                const response = await fetch(`${API}/api/rides/${currentRideId}/cancel/user`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: userId })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    addLog('userLog', `✅ Ride canceled: ${JSON.stringify(data)}`, 'success');
+                    document.getElementById('cancelRideUser').disabled = true;
+                    currentRideAccepted = false;
+                } else {
+                    addLog('userLog', `❌ Error: ${data.error || data.message}`, 'error');
+                }
+            } catch (ex) {
+                addLog('userLog', `❌ Error: ${ex.message}`, 'error');
+            }
+        });
+
+        // 🔧 FINISH RIDE
+        document.getElementById('finishRide').addEventListener('click', async () => {
+            if (!currentRideId || !driverId) return alert('No active ride');
+
+            try {
+                addLog('driverLog', `📤 Finishing ride #${currentRideId}...`, 'info');
+                const response = await fetch(`${API}/api/rides/${currentRideId}/finish`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ driverId: driverId })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    addLog('driverLog', `✅ Ride finished: ${JSON.stringify(data)}`, 'success');
+                    document.getElementById('finishRide').disabled = true;
+                    document.getElementById('startRide').disabled = true;
+                    document.getElementById('cancelRideDriver').disabled = true;
+                    document.getElementById('cancelRideUser').disabled = true;
+                } else {
+                    addLog('driverLog', `❌ Error: ${data.error || data.message}`, 'error');
+                }
+            } catch (ex) {
+                addLog('driverLog', `❌ Error: ${ex.message}`, 'error');
+            }
+        });
+
+        // 🔧 CANCEL RIDE BY DRIVER
+        document.getElementById('cancelRideDriver').addEventListener('click', async () => {
+            if (!currentRideId || !driverId) return alert('No active ride');
+
+            try {
+                addLog('driverLog', `📤 Canceling ride #${currentRideId} (driver)...`, 'info');
+                const response = await fetch(`${API}/api/rides/${currentRideId}/cancel/driver`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ driverId: driverId })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    addLog('driverLog', `✅ Ride canceled: ${JSON.stringify(data)}`, 'success');
+                    document.getElementById('cancelRideDriver').disabled = true;
+                    currentRideAccepted = false;
+                } else {
+                    addLog('driverLog', `❌ Error: ${data.error || data.message}`, 'error');
+                }
+            } catch (ex) {
+                addLog('driverLog', `❌ Error: ${ex.message}`, 'error');
+            }
+        });
+
         // ========== HELPERS ==========
         function showDriverInfo(id, lat, lng) {
             const info = document.getElementById('driverInfo');
