@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Driver & Rider Test Flow</title>
+    <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/signalr.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { text-align: center; margin-bottom: 30px; color: #333; }
+        
+        .section { 
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .panel {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .panel h2 {
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #007bff;
+            color: #007bff;
+        }
+        
+        .form-group {
+            margin-bottom: 12px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 4px;
+            font-weight: bold;
+            font-size: 14px;
+            color: #333;
+        }
+        
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 4px rgba(0,123,255,0.3);
+        }
+        
+        button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            width: 100%;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #0056b3;
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .log {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 12px;
+            height: 300px;
+            overflow-y: auto;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        
+        .log-line {
+            margin: 2px 0;
+            padding: 2px 4px;
+        }
+        
+        .log-info { color: #0066cc; }
+        .log-success { color: #00cc00; }
+        .log-error { color: #cc0000; }
+        .log-warning { color: #ff6600; }
+        
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+        
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.disconnected { background: #f8d7da; color: #721c24; }
+        
+        .driver-info {
+            background: #e7f3ff;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+        
+        .ride-info {
+            background: #fff3e0;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+        
+        .full-width { grid-column: 1 / -1; }
+        
+        @media (max-width: 768px) {
+            .section { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚕 TurboTaxi - Driver & Rider Realtime Test</h1>
+        
+        <div class="section">
+            <!-- DRIVER PANEL -->
+            <div class="panel">
+                <h2>👨‍✈️ Driver Panel</h2>
+                
+                <div class="status disconnected" id="driverStatus">❌ Disconnected</div>
+                
+                <div class="driver-info" id="driverInfo" style="display:none;"></div>
+                
+                <div class="form-group">
+                    <label>Driver ID:</label>
+                    <input type="number" id="driverId" value="3" min="1">
+                </div>
+                
+                <div class="form-group">
+                    <label>Latitude:</label>
+                    <input type="number" id="driverLat" value="40.4099" step="0.0001">
+                </div>
+                
+                <div class="form-group">
+                    <label>Longitude:</label>
+                    <input type="number" id="driverLng" value="49.8728" step="0.0001">
+                </div>
+                
+                <div class="form-group">
+                    <label>Status:</label>
+                    <select id="driverStatus_select">
+                        <option value="">-- Select --</option>
+                        <option value="0">Offline (0)</option>
+                        <option value="1" selected>Free (1)</option>
+                        <option value="2">Busy (2)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label>Vehicle Type:</label>
+                    <select id="vehicleType">
+                        <option value="0" selected>Eco (0)</option>
+                        <option value="1">Business (1)</option>
+                        <option value="2">XL (2)</option>
+                        <option value="3">Delivery (3)</option>
+                    </select>
+                </div>
+                
+                <button id="driverConnect">Connect to SignalR</button>
+                <button id="driverUpdateLocation" disabled style="margin-top: 8px;">Update Location</button>
+                <button id="driverDisconnect" disabled style="margin-top: 8px; background: #dc3545;">Disconnect</button>
+                
+                <div class="log" id="driverLog"></div>
+            </div>
+            
+            <!-- USER/RIDER PANEL -->
+            <div class="panel">
+                <h2>👩 User/Rider Panel</h2>
+                
+                <div class="ride-info" id="rideInfo" style="display:none;"></div>
+                
+                <div class="form-group">
+                    <label>User ID:</label>
+                    <input type="number" id="userId" value="1" min="1">
+                </div>
+                
+                <div class="form-group">
+                    <label>Pickup Latitude:</label>
+                    <input type="number" id="pickupLat" value="40.4099" step="0.0001">
+                </div>
+                
+                <div class="form-group">
+                    <label>Pickup Longitude:</label>
+                    <input type="number" id="pickupLng" value="49.8728" step="0.0001">
+                </div>
+                
+                <div class="form-group">
+                    <label>Destination Latitude:</label>
+                    <input type="number" id="destLat" value="40.37" step="0.0001">
+                </div>
+                
+                <div class="form-group">
+                    <label>Destination Longitude:</label>
+                    <input type="number" id="destLng" value="49.85" step="0.0001">
+                </div>
+                
+                <div class="form-group">
+                    <label>Vehicle Type:</label>
+                    <select id="rideVehicleType">
+                        <option value="0" selected>Eco (0)</option>
+                        <option value="1">Business (1)</option>
+                        <option value="2">XL (2)</option>
+                        <option value="3">Delivery (3)</option>
+                    </select>
+                </div>
+                
+                <button id="createRide">Create Ride</button>
+                <button id="acceptRide" disabled style="margin-top: 8px; background: #28a745;">Accept (Auto)</button>
+                <button id="startRide" disabled style="margin-top: 8px; background: #17a2b8;">Start Ride</button>
+                
+                <div class="log" id="userLog"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = "http://localhost:5000";
+        const HUB_URL = `${API}/driverhub`;
+        
+        let driverConnection = null;
+        let driverId = null;
+        let currentRideId = null;
+        let currentRideAccepted = false;
+        
+        // ========== LOGGING ==========
+        function addLog(elementId, message, type = 'info') {
+            const log = document.getElementById(elementId);
+            const line = document.createElement('div');
+            line.className = `log-line log-${type}`;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            log.appendChild(line);
+            log.scrollTop = log.scrollHeight;
+        }
+        
+        // ========== DRIVER SETUP ==========
+        document.getElementById('driverConnect').addEventListener('click', async () => {
+            driverId = parseInt(document.getElementById('driverId').value);
+            if (!driverId) return alert('Enter Driver ID');
+            
+            try {
+                driverConnection = new signalR.HubConnectionBuilder()
+                    .withUrl(HUB_URL, { withCredentials: true })
+                    .withAutomaticReconnect()
+                    .build();
+                
+                // Event: NewRideRequest
+                driverConnection.on('NewRideRequest', (requestId, payload) => {
+                    addLog('driverLog', `✅ RECEIVED NewRideRequest: ${JSON.stringify(payload)}`, 'success');
+                    showRideInfo(payload);
+                    document.getElementById('acceptRide').disabled = false;
+                });
+                
+                // Event: RideStatusUpdated
+                driverConnection.on('RideStatusUpdated', (rideId, status, payload) => {
+                    addLog('driverLog', `📢 RideStatusUpdated: rideId=${rideId}, status=${status}`, 'info');
+                });
+                
+                // Event: DriverLocationUpdated
+                driverConnection.on('DriverLocationUpdated', (driverId, lat, lng) => {
+                    addLog('driverLog', `📍 DriverLocationUpdated: lat=${lat}, lng=${lng}`, 'info');
+                });
+                
+                await driverConnection.start();
+                addLog('driverLog', '✅ Connected to SignalR', 'success');
+                document.getElementById('driverStatus').className = 'status connected';
+                document.getElementById('driverStatus').textContent = `✅ Connected (Driver #${driverId})`;
+                document.getElementById('driverConnect').disabled = true;
+                document.getElementById('driverUpdateLocation').disabled = false;
+                document.getElementById('driverDisconnect').disabled = false;
+            } catch (ex) {
+                addLog('driverLog', `❌ Connection failed: ${ex.message}`, 'error');
+            }
+        });
+        
+        // Update Location
+        document.getElementById('driverUpdateLocation').addEventListener('click', async () => {
+            const lat = parseFloat(document.getElementById('driverLat').value);
+            const lng = parseFloat(document.getElementById('driverLng').value);
+            const status = document.getElementById('driverStatus_select').value;
+            const vehicleType = parseInt(document.getElementById('vehicleType').value);
+            
+            if (!lat || !lng) return alert('Enter coordinates');
+            if (!driverConnection) return alert('Not connected');
+            
+            try {
+                const payload = {
+                    driverId: driverId,
+                    latitude: lat,
+                    longitude: lng,
+                    vehicleType: vehicleType,
+                    statusOptional: status ? parseInt(status) : null
+                };
+                
+                addLog('driverLog', `📤 Sending UpdateLocation: ${JSON.stringify(payload)}`, 'info');
+                await driverConnection.invoke('UpdateLocation', payload);
+                addLog('driverLog', `✅ Location updated successfully`, 'success');
+                
+                showDriverInfo(driverId, lat, lng);
+            } catch (ex) {
+                addLog('driverLog', `❌ Error: ${ex.message}`, 'error');
+            }
+        });
+        
+        document.getElementById('driverDisconnect').addEventListener('click', async () => {
+            if (driverConnection) {
+                await driverConnection.stop();
+                driverConnection = null;
+                addLog('driverLog', '❌ Disconnected', 'warning');
+                document.getElementById('driverStatus').className = 'status disconnected';
+                document.getElementById('driverStatus').textContent = '❌ Disconnected';
+                document.getElementById('driverConnect').disabled = false;
+                document.getElementById('driverUpdateLocation').disabled = true;
+                document.getElementById('driverDisconnect').disabled = true;
+            }
+        });
+        
+        // ========== USER SETUP ==========
+        document.getElementById('createRide').addEventListener('click', async () => {
+            const userId = parseInt(document.getElementById('userId').value);
+            const pickupLat = parseFloat(document.getElementById('pickupLat').value);
+            const pickupLng = parseFloat(document.getElementById('pickupLng').value);
+            const destLat = parseFloat(document.getElementById('destLat').value);
+            const destLng = parseFloat(document.getElementById('destLng').value);
+            const vehicleType = parseInt(document.getElementById('rideVehicleType').value);
+            
+            if (!userId || !pickupLat || !pickupLng) return alert('Enter all fields');
+            
+            try {
+                addLog('userLog', `📤 Creating ride...`, 'info');
+                const response = await fetch(`${API}/api/rides`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: userId,
+                        pickupLat: pickupLat,
+                        pickupLng: pickupLng,
+                        destinationLat: destLat,
+                        destinationLng: destLng,
+                        vehicleType: vehicleType
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentRideId = data.rideId;
+                    addLog('userLog', `✅ Ride created: ${JSON.stringify(data)}`, 'success');
+                    document.getElementById('acceptRide').disabled = false;
+                    
+                    const info = document.getElementById('rideInfo');
+                    info.innerHTML = `
+                        <strong>Ride #${data.rideId}</strong><br>
+                        Status: ${data.status}<br>
+                        Candidate Drivers: ${data.candidateDriverIds ? data.candidateDriverIds.join(', ') : 'None'}<br>
+                        Estimated Fare: ${data.estimatedFare} AZN<br>
+                        Distance: ${data.distanceKm?.toFixed(2) || 'N/A'} km<br>
+                        Duration: ${data.durationMinutes || 'N/A'} min
+                    `;
+                    info.style.display = 'block';
+                } else {
+                    addLog('userLog', `❌ Error: ${data.error || data.message}`, 'error');
+                }
+            } catch (ex) {
+                addLog('userLog', `❌ Error: ${ex.message}`, 'error');
+            }
+        });
+        
+        document.getElementById('acceptRide').addEventListener('click', async () => {
+            if (!currentRideId || !driverId) return alert('Missing ride or driver ID');
+            
+            try {
+                addLog('userLog', `📤 Accepting ride #${currentRideId} as driver #${driverId}...`, 'info');
+                const response = await fetch(`${API}/api/rides/${currentRideId}/accept`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ driverId: driverId })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentRideAccepted = true;
+                    addLog('userLog', `✅ Ride accepted: ${JSON.stringify(data)}`, 'success');
+                    document.getElementById('acceptRide').disabled = true;
+                    document.getElementById('startRide').disabled = false;
+                } else {
+                    addLog('userLog', `❌ Error: ${data.error || data.message}`, 'error');
+                }
+            } catch (ex) {
+                addLog('userLog', `❌ Error: ${ex.message}`, 'error');
+            }
+        });
+        
+        document.getElementById('startRide').addEventListener('click', async () => {
+            if (!currentRideId || !driverId) return alert('Missing ride or driver ID');
+            
+            try {
+                addLog('userLog', `📤 Starting ride #${currentRideId}...`, 'info');
+                const response = await fetch(`${API}/api/rides/${currentRideId}/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ driverId: driverId })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    addLog('userLog', `✅ Ride started: ${JSON.stringify(data)}`, 'success');
+                    document.getElementById('startRide').disabled = true;
+                } else {
+                    addLog('userLog', `❌ Error: ${data.error || data.message}`, 'error');
+                }
+            } catch (ex) {
+                addLog('userLog', `❌ Error: ${ex.message}`, 'error');
+            }
+        });
+        
+        // ========== HELPERS ==========
+        function showDriverInfo(id, lat, lng) {
+            const info = document.getElementById('driverInfo');
+            info.innerHTML = `<strong>Driver #${id}</strong><br>Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`;
+            info.style.display = 'block';
+        }
+        
+        function showRideInfo(payload) {
+            const info = document.getElementById('rideInfo');
+            info.innerHTML = `
+                <strong>New Ride Request #${payload.rideId}</strong><br>
+                Type: ${payload.vehicleType}<br>
+                Pickup: (${payload.pickupLat.toFixed(4)}, ${payload.pickupLng.toFixed(4)})<br>
+                Estimated Fare: ${payload.estimatedFare} AZN<br>
+                Distance: ${payload.distanceKm?.toFixed(2) || 'N/A'} km
+            `;
+            info.style.display = 'block';
+        }
+    </script>
+</body>
+</html>
