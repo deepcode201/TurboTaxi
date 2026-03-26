@@ -287,7 +287,25 @@
                 
                 // Event: RideStatusUpdated
                 driverConnection.on('RideStatusUpdated', (rideId, status, payload) => {
-                    addLog('driverLog', `📢 RideStatusUpdated: rideId=${rideId}, status=${status}`, 'info');
+                    addLog('driverLog', `📢 RideStatusUpdated: rideId=${rideId}, status=${status}, message=${payload?.message}`, 'info');
+
+                    // 🔧 UPDATE UI based on status
+                    if (payload?.status === 'Canceled') {
+                        addLog('driverLog', `❌ RIDE CANCELED: ${payload.message}`, 'error');
+                        document.getElementById('acceptRide').disabled = true;
+                        document.getElementById('startRide').disabled = true;
+                        document.getElementById('finishRide').disabled = true;
+                        document.getElementById('cancelRideDriver').disabled = true;
+
+                        // Clear ride info
+                        const rideInfo = document.getElementById('rideInfo');
+                        if (rideInfo) rideInfo.style.display = 'none';
+                    } else if (payload?.status === 'Approved' || payload?.status === 'Accepted') {
+                        addLog('driverLog', `✅ RIDE ACCEPTED by you`, 'success');
+                        document.getElementById('startRide').disabled = false;
+                        document.getElementById('finishRide').disabled = true;
+                        document.getElementById('cancelRideDriver').disabled = false;
+                    }
                 });
                 
                 // Event: DriverLocationUpdated
@@ -515,8 +533,21 @@
 
                 if (response.ok) {
                     addLog('userLog', `✅ Ride canceled: ${JSON.stringify(data)}`, 'success');
+
+                    // 🔧 DISABLE ALL BUTTONS
+                    document.getElementById('createRide').disabled = false;
+                    document.getElementById('acceptRide').disabled = true;
+                    document.getElementById('startRide').disabled = true;
                     document.getElementById('cancelRideUser').disabled = true;
+                    document.getElementById('cancelRideDriver').disabled = true;
+                    document.getElementById('finishRide').disabled = true;
+
                     currentRideAccepted = false;
+                    currentRideId = null;
+
+                    // Clear ride info
+                    const rideInfo = document.getElementById('rideInfo');
+                    if (rideInfo) rideInfo.style.display = 'none';
                 } else {
                     addLog('userLog', `❌ Error: ${data.error || data.message}`, 'error');
                 }
@@ -568,9 +599,21 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    addLog('driverLog', `✅ Ride canceled: ${JSON.stringify(data)}`, 'success');
+                    addLog('driverLog', `✅ Ride declined by driver: ${JSON.stringify(data)}`, 'success');
+
+                    // 🔧 RESET ALL BUTTONS
+                    document.getElementById('acceptRide').disabled = true;
+                    document.getElementById('startRide').disabled = true;
+                    document.getElementById('finishRide').disabled = true;
                     document.getElementById('cancelRideDriver').disabled = true;
+                    document.getElementById('cancelRideUser').disabled = true;
+
                     currentRideAccepted = false;
+                    currentRideId = null;
+
+                    // Clear ride info
+                    const rideInfo = document.getElementById('rideInfo');
+                    if (rideInfo) rideInfo.style.display = 'none';
                 } else {
                     addLog('driverLog', `❌ Error: ${data.error || data.message}`, 'error');
                 }
