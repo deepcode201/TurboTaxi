@@ -682,15 +682,27 @@ namespace TurboTaxi.Infrastructure.Services
             try
             {
                 var hKey = RedisKeys.DriverHash(request.DriverId);
+                var currentHash = await _redis.HashGetAllAsync(hKey);
+                var driverData = currentHash.ToDictionary(x => x.Name.ToString(), x => x.Value.ToString());
+
+                // Get last known location to preserve availability
+                var lastLat = driverData.GetValueOrDefault("lat") ?? "0";
+                var lastLng = driverData.GetValueOrDefault("lng") ?? "0";
+                var vehicleType = driverData.GetValueOrDefault("vehicleType") ?? "standard";
+
+                var now = DateTime.UtcNow;
                 await _redis.HashSetAsync(hKey, new HashEntry[]
                 {
                     new("status", "Free"),
-                    new("updatedAt", DateTime.UtcNow.ToString("O"))
+                    new("updatedAt", now.ToString("O")),
+                    new("lat", lastLat),
+                    new("lng", lastLng),
+                    new("vehicleType", vehicleType)
                 });
                 await _redis.HashDeleteAsync(hKey, "currentRideId");
                 await _redis.HashDeleteAsync(hKey, "currentUserId");
 
-                _logger.LogInformation($"✓ Driver #{request.DriverId} status → Free");
+                _logger.LogInformation($"✓ Driver #{request.DriverId} status → Free (lat={lastLat}, lng={lastLng})");
             }
             catch (Exception ex)
             {
@@ -779,10 +791,22 @@ namespace TurboTaxi.Infrastructure.Services
                 try
                 {
                     var hKey = RedisKeys.DriverHash(ride.DriverId.Value);
+                    var currentHash = await _redis.HashGetAllAsync(hKey);
+                    var driverData = currentHash.ToDictionary(x => x.Name.ToString(), x => x.Value.ToString());
+
+                    // Get last known location to preserve availability
+                    var lastLat = driverData.GetValueOrDefault("lat") ?? "0";
+                    var lastLng = driverData.GetValueOrDefault("lng") ?? "0";
+                    var vehicleType = driverData.GetValueOrDefault("vehicleType") ?? "standard";
+
+                    var now = DateTime.UtcNow;
                     await _redis.HashSetAsync(hKey, new HashEntry[]
                     {
                         new("status", "Free"),
-                        new("updatedAt", DateTime.UtcNow.ToString("O"))
+                        new("updatedAt", now.ToString("O")),
+                        new("lat", lastLat),
+                        new("lng", lastLng),
+                        new("vehicleType", vehicleType)
                     });
                     await _redis.HashDeleteAsync(hKey, "currentRideId");
                     await _redis.HashDeleteAsync(hKey, "currentUserId");
@@ -857,10 +881,22 @@ namespace TurboTaxi.Infrastructure.Services
             try
             {
                 var hKey = RedisKeys.DriverHash(request.DriverId);
+                var currentHash = await _redis.HashGetAllAsync(hKey);
+                var driverData = currentHash.ToDictionary(x => x.Name.ToString(), x => x.Value.ToString());
+
+                // Get last known location to preserve availability
+                var lastLat = driverData.GetValueOrDefault("lat") ?? "0";
+                var lastLng = driverData.GetValueOrDefault("lng") ?? "0";
+                var vehicleType = driverData.GetValueOrDefault("vehicleType") ?? "standard";
+
+                var now = DateTime.UtcNow;
                 await _redis.HashSetAsync(hKey, new HashEntry[]
                 {
                     new("status", "Free"),
-                    new("updatedAt", DateTime.UtcNow.ToString("O"))
+                    new("updatedAt", now.ToString("O")),
+                    new("lat", lastLat),
+                    new("lng", lastLng),
+                    new("vehicleType", vehicleType)
                 });
                 await _redis.HashDeleteAsync(hKey, "currentRideId");
                 await _redis.HashDeleteAsync(hKey, "currentUserId");
