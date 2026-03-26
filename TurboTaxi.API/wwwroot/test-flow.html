@@ -247,10 +247,13 @@
 
     <script>
         const API = "http://localhost:5000";
-        const HUB_URL = `${API}/driverhub`;
-        
+        const DRIVER_HUB_URL = `${API}/driverhub`;
+        const USER_HUB_URL = `${API}/userhub`;
+
         let driverConnection = null;
+        let userConnection = null;
         let driverId = null;
+        let userId = null;
         let currentRideId = null;
         let currentRideAccepted = false;
         
@@ -268,10 +271,10 @@
         document.getElementById('driverConnect').addEventListener('click', async () => {
             driverId = parseInt(document.getElementById('driverId').value);
             if (!driverId) return alert('Enter Driver ID');
-            
+
             try {
                 driverConnection = new signalR.HubConnectionBuilder()
-                    .withUrl(HUB_URL, { withCredentials: true })
+                    .withUrl(DRIVER_HUB_URL, { withCredentials: true })
                     .withAutomaticReconnect()
                     .build();
                 
@@ -345,16 +348,59 @@
                 document.getElementById('driverDisconnect').disabled = true;
             }
         });
-        
+
+        // 🔧 USER HUB CONNECTION - Setup before creating ride
+        async function setupUserConnection(userIdParam) {
+            try {
+                if (!userConnection) {
+                    userConnection = new signalR.HubConnectionBuilder()
+                        .withUrl(USER_HUB_URL, { withCredentials: true })
+                        .withAutomaticReconnect()
+                        .build();
+
+                    // Event: RideStatusUpdated (ride state changes, cancellations, etc.)
+                    userConnection.on('RideStatusUpdated', (rideId, status, payload) => {
+                        addLog('userLog', `✅ RideStatusUpdated: rideId=${rideId}, status=${payload.status || status}`, 'success');
+                        addLog('userLog', `   Message: ${payload.message}`, 'info');
+                    });
+
+                    // Event: DriverLocationUpdated
+                    userConnection.on('DriverLocationUpdated', (driverId, lat, lng) => {
+                        addLog('userLog', `📍 Driver #${driverId} location: (${lat.toFixed(4)}, ${lng.toFixed(4)})`, 'info');
+                    });
+
+                    // Event: RideCanceled
+                    userConnection.on('RideCanceled', (rideId, reason) => {
+                        addLog('userLog', `❌ RideCanceled #${rideId}: ${reason}`, 'warning');
+                    });
+
+                    await userConnection.start();
+                    addLog('userLog', '✅ Connected to UserHub', 'success');
+                }
+
+                // Auto-subscribe to user notifications
+                await userConnection.invoke('SubscribeUser', userIdParam.toString());
+                addLog('userLog', `✓ Subscribed to user #${userIdParam} notifications`, 'success');
+            } catch (ex) {
+                addLog('userLog', `❌ UserHub connection error: ${ex.message}`, 'error');
+            }
+        }
+
         // ========== USER SETUP ==========
         document.getElementById('createRide').addEventListener('click', async () => {
-            const userId = parseInt(document.getElementById('userId').value);
+            const newUserId = parseInt(document.getElementById('userId').value);
             const pickupLat = parseFloat(document.getElementById('pickupLat').value);
             const pickupLng = parseFloat(document.getElementById('pickupLng').value);
             const destLat = parseFloat(document.getElementById('destLat').value);
             const destLng = parseFloat(document.getElementById('destLng').value);
             const vehicleType = parseInt(document.getElementById('rideVehicleType').value);
-            
+
+            if (!newUserId) return alert('Enter User ID');
+
+            // 🔧 Setup user connection first
+            userId = newUserId;
+            await setupUserConnection(userId);
+
             if (!userId || !pickupLat || !pickupLng) return alert('Enter all fields');
             
             try {

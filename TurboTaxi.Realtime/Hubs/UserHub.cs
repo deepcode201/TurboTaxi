@@ -70,6 +70,7 @@ namespace TurboTaxi.Realtime.Hubs
         /// <summary>
         /// Subscribe user to receive updates for a specific ride.
         /// Joins group: user:{userId}
+        /// 🔧 Can be called explicitly or auto-subscribe via notification
         /// </summary>
         public async Task SubscribeUser(string userId)
         {
@@ -80,7 +81,7 @@ namespace TurboTaxi.Realtime.Hubs
 
             var groupName = $"user:{userId}";
             await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
-            _logger.LogInformation($"[SignalR] User {userId} subscribed. ConnectionId={Context.ConnectionId}, Group={groupName}");
+            _logger.LogInformation($"✓ [SignalR] User {userId} subscribed to notifications. ConnectionId={Context.ConnectionId}, Group={groupName}");
         }
 
         /// <summary>
