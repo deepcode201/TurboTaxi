@@ -23,8 +23,23 @@ namespace TurboTaxi.Realtime.Hubs
             _logger = logger;
         }
 
+        public override async Task OnConnectedAsync()
+        {
+            _logger.LogInformation($"[SignalR] Driver connected: {Context.ConnectionId}");
+            await base.OnConnectedAsync();
+        }
+
+        public override async Task OnDisconnectedAsync(Exception? exception)
+        {
+            _logger.LogInformation($"[SignalR] Driver disconnected: {Context.ConnectionId}");
+            await base.OnDisconnectedAsync(exception);
+        }
+
         public Task SubscribeDriver(string driverId)
-            => Groups.AddToGroupAsync(Context.ConnectionId, $"driver:{driverId}");
+        {
+            _logger.LogInformation($"[SignalR] Driver #{driverId} subscribing to group driver:{driverId}");
+            return Groups.AddToGroupAsync(Context.ConnectionId, $"driver:{driverId}");
+        }
 
         public Task UnsubscribeDriver(string driverId)
             => Groups.RemoveFromGroupAsync(Context.ConnectionId, $"driver:{driverId}");
@@ -84,6 +99,25 @@ namespace TurboTaxi.Realtime.Hubs
             }
 
             await _driverLocationService.UpdateAsync(request, Context.ConnectionAborted);
+        }
+
+        /// <summary>
+        /// Explicit driver acceptance of a ride - ensure driver is subscribed
+        /// </summary>
+        public async Task OnRideAccepted(int driverId, int rideId)
+        {
+            _logger.LogInformation($"[SignalR] Driver #{driverId} accepted ride #{rideId}");
+
+            try
+            {
+                var driverGroupName = $"driver:{driverId}";
+                await Groups.AddToGroupAsync(Context.ConnectionId, driverGroupName);
+                _logger.LogInformation($"[SignalR] Driver #{driverId} subscribed to group '{driverGroupName}' after accepting ride");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"[SignalR] Failed to subscribe driver #{driverId} after ride acceptance");
+            }
         }
     }
 }

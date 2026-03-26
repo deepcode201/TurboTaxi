@@ -372,6 +372,24 @@ namespace TurboTaxi.Infrastructure.Services
                     throw new InvalidOperationException($"Ride already assigned to driver #{ride.DriverId}");
                 }
 
+                // 🔧 CRITICAL FIX: Clear any stale driver state from previous attempts
+                try
+                {
+                    var hKey = RedisKeys.DriverHash(request.DriverId);
+                    var existingRideId = await _redis.HashGetAsync(hKey, "currentRideId");
+
+                    if (!string.IsNullOrEmpty(existingRideId))
+                    {
+                        _logger.LogInformation($"⚠️ Driver #{request.DriverId} had stale ride #{existingRideId} in cache");
+                        await _redis.HashDeleteAsync(hKey, "currentRideId");
+                        await _redis.HashDeleteAsync(hKey, "currentUserId");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, $"Failed to clear stale driver state");
+                }
+
                 // Get driver location
                 var (driverLat, driverLng) = await GetDriverLocationAsync(request.DriverId);
                 bool hasLocation = IsValidCoordinate(driverLat, driverLng);
@@ -452,22 +470,20 @@ namespace TurboTaxi.Infrastructure.Services
                     _logger.LogError(ex, $"Failed to notify user #{ride.UserId}");
                 }
 
-                // Notify driver
+                // Notify driver with current accepted ride info
                 try
                 {
-                    await _notification.NotifyDriverAsync(request.DriverId, new
+                    var driverPayload = new RideCompletionPayload
                     {
                         RideId = ride.Id,
-                        Status = ride.Status.ToString(),
-                        PickupLat = ride.StartLocation.Latitude,
-                        PickupLng = ride.StartLocation.Longitude,
-                        DestinationLat = ride.EndLocation.Latitude,
-                        DestinationLng = ride.EndLocation.Longitude,
-                        EncodedPolyline = polyline,
-                        DistanceKm = distanceKm,
-                        DurationMinutes = durationMin,
-                        Message = "Navigate to pickup location"
-                    });
+                        Status = ride.Status.ToString(), // "Approved"
+                        ClearMap = false,
+                        Message = "You accepted this ride! Navigate to pickup location",
+                        UserType = "driver"
+                    };
+
+                    await _notification.NotifyDriverAsync(request.DriverId, driverPayload);
+                    _logger.LogInformation($"✓ Driver #{request.DriverId} notified about accepted ride #{ride.Id}");
                 }
                 catch (Exception ex)
                 {
