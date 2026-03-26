@@ -1,23 +1,18 @@
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using TurboTaxi.Application.Interfaces;
-using TurboTaxi.Realtime.Hubs;
 
 namespace TurboTaxi.Realtime.Services
 {
     public class RideNotificationService : IRideNotificationService
     {
-        private readonly IHubContext<DriverHub, IDriverClient> _driverHub;
-        private readonly IHubContext<UserHub, IUserClient> _userHub;
+        private readonly IMessageQueueService _messageQueueService;
         private readonly ILogger<RideNotificationService> _logger;
 
         public RideNotificationService(
-            IHubContext<DriverHub, IDriverClient> driverHub,
-            IHubContext<UserHub, IUserClient> userHub,
+            IMessageQueueService messageQueueService,
             ILogger<RideNotificationService> logger)
         {
-            _driverHub = driverHub;
-            _userHub = userHub;
+            _messageQueueService = messageQueueService;
             _logger = logger;
         }
 
@@ -55,7 +50,7 @@ namespace TurboTaxi.Realtime.Services
                 var groupName = $"driver:{driverId}";
 
                 _logger.LogInformation($"[SignalR] Notifying driver {driverId} (group: {groupName}) - RideId: {rideId}");
-                await _driverHub.Clients.Group(groupName).RideStatusUpdated(rideId, "notification", payload);
+                await _messageQueueService.EnqueueAndSendAsync(groupName, "RideStatusUpdated", rideId, "notification", payload);
             }
             catch (Exception ex)
             {
@@ -80,7 +75,7 @@ namespace TurboTaxi.Realtime.Services
                 var groupName = $"user:{userId}";
 
                 _logger.LogInformation($"[SignalR] Notifying user {userId} (group: {groupName}) - RideId: {rideId}");
-                await _userHub.Clients.Group(groupName).RideStatusUpdated(rideId, "ride_update", payload);
+                await _messageQueueService.EnqueueAndSendAsync(groupName, "RideStatusUpdated", rideId, "ride_update", payload);
             }
             catch (Exception ex)
             {
@@ -109,7 +104,7 @@ namespace TurboTaxi.Realtime.Services
                     if (driverId <= 0) continue;
 
                     var groupName = $"driver:{driverId}";
-                    await _driverHub.Clients.Group(groupName).NewRideRequest($"ride_{rideId}", payload);
+                    await _messageQueueService.EnqueueAndSendAsync(groupName, "NewRideRequest", $"ride_{rideId}", payload);
                 }
             }
             catch (Exception ex)
@@ -127,7 +122,7 @@ namespace TurboTaxi.Realtime.Services
             {
                 _logger.LogInformation($"[SignalR] Broadcasting ride {rideId} cancellation to all drivers");
 
-                await _driverHub.Clients.All.RideStatusUpdated(rideId, "RideCanceled", new
+                await _messageQueueService.EnqueueAndSendAsync("all_drivers", "RideStatusUpdated", rideId, "RideCanceled", new
                 {
                     RideId = rideId,
                     Status = "Canceled",
@@ -149,7 +144,7 @@ namespace TurboTaxi.Realtime.Services
             {
                 _logger.LogInformation($"[SignalR] Broadcasting ride {rideId} taken by driver {acceptedDriverId}");
 
-                await _driverHub.Clients.All.RideStatusUpdated(rideId, "RideTaken", new
+                await _messageQueueService.EnqueueAndSendAsync("all_drivers", "RideStatusUpdated", rideId, "RideTaken", new
                 {
                     RideId = rideId,
                     Status = "Taken",

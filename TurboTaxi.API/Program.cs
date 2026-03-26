@@ -27,11 +27,16 @@ try
     // SignalR with proper JSON deserialization for parameter binding
     builder.Services.AddSignalR(options =>
     {
-        options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
-        options.HandshakeTimeout = TimeSpan.FromSeconds(30);
-        options.KeepAliveInterval = TimeSpan.FromSeconds(15);
+        // 🚀 OPTIMIZED FOR REAL-TIME & RELIABILITY
+        options.ClientTimeoutInterval = TimeSpan.FromSeconds(30);  // Reduced from 60s
+        options.HandshakeTimeout = TimeSpan.FromSeconds(15);       // Reduced from 30s
+        options.KeepAliveInterval = TimeSpan.FromSeconds(5);       // Increased from 15s (more frequent)
         options.EnableDetailedErrors = builder.Environment.IsDevelopment();
         options.MaximumReceiveMessageSize = 102400;
+
+        Console.WriteLine("[STARTUP] SignalR Optimized:");
+        Console.WriteLine("  - ClientTimeout: 30s (faster disconnect detection)");
+        Console.WriteLine("  - KeepAlive: 5s (more frequent heartbeat)");
     })
     .AddJsonProtocol(options =>
     {
@@ -42,7 +47,7 @@ try
 
         Console.WriteLine("[STARTUP] SignalR JSON Protocol: PropertyNameCaseInsensitive = true");
     });
-    Console.WriteLine("[STARTUP] SignalR configured with JSON protocol fix");
+    Console.WriteLine("[STARTUP] SignalR configured with optimized timeouts");
 
     // CORS
     builder.Services.AddCors(options =>
