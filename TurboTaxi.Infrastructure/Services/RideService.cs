@@ -818,9 +818,12 @@ namespace TurboTaxi.Infrastructure.Services
 
         public async Task<CancelRideResponse> CancelRideByDriverAsync(int rideId, CancelRideByDriverRequest request, CancellationToken ct = default)
         {
-            _logger.LogInformation($"? Driver #{request.DriverId} canceling ride #{rideId}");
+            _logger.LogInformation($"? Driver #{request.DriverId} declining ride #{rideId}");
 
-            var ride = await _db.Rides.FirstOrDefaultAsync(r => r.Id == rideId, ct);
+            var ride = await _db.Rides
+                .Include(r => r.StartLocation)
+                .Include(r => r.EndLocation)
+                .FirstOrDefaultAsync(r => r.Id == rideId, ct);
 
             if (ride == null)
                 throw new KeyNotFoundException($"Ride #{rideId} not found");
@@ -831,12 +834,10 @@ namespace TurboTaxi.Infrastructure.Services
             if (ride.Status == RideStatus.Completed)
                 throw new InvalidOperationException($"Cannot cancel completed ride");
 
-            // Update ride status FIRST
-            ride.Status = RideStatus.Canceled;
-            ride.CanceledTime = DateTime.UtcNow;
-            await _db.SaveChangesAsync(ct);
+            if (ride.Status == RideStatus.Canceled)
+                throw new InvalidOperationException($"Ride already canceled");
 
-            // Free driver
+            // Free the driver first
             try
             {
                 var hKey = RedisKeys.DriverHash(request.DriverId);
@@ -848,43 +849,146 @@ namespace TurboTaxi.Infrastructure.Services
                 await _redis.HashDeleteAsync(hKey, "currentRideId");
                 await _redis.HashDeleteAsync(hKey, "currentUserId");
 
-                _logger.LogInformation($"✓ Driver #{request.DriverId} status → Free");
+                _logger.LogInformation($"✓ Driver #{request.DriverId} freed");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to update driver #{request.DriverId} status");
+                _logger.LogError(ex, $"Failed to free driver #{request.DriverId}");
             }
 
-            // 🔧 FIX: Notify BOTH user and driver with RideStatusUpdated
+            // 🔧 NEW LOGIC: Instead of canceling the ride, reset it to Pending and search for another driver
             try
             {
-                var cancelPayload = new RideCompletionPayload
+                _logger.LogInformation($"? Resetting ride #{rideId} to Pending status for reassignment");
+
+                // Reset ride status to Pending (as if just created)
+                ride.Status = RideStatus.Pending;
+                ride.DriverId = null; // Remove current driver
+                ride.AcceptedTime = null;
+                ride.PickUpTime = null;
+                ride.RequestedTime = DateTime.UtcNow; // Reset request time for fresh search
+                await _db.SaveChangesAsync(ct);
+
+                _logger.LogInformation($"✓ Ride #{rideId} reset to Pending");
+
+                // Find nearby drivers again
+                var (polyline, distanceKm, durationMin) = await EstimateRouteAsync(
+                    ride.StartLocation.Latitude, ride.StartLocation.Longitude,
+                    ride.EndLocation.Latitude, ride.EndLocation.Longitude,
+                    ct);
+
+                var nearbyDrivers = await _redis.GeoRadiusAsync(
+                    $"geo:drivers:{ride.RequestedVehicleType.ToString().ToLowerInvariant()}",
+                    ride.StartLocation.Longitude,
+                    ride.StartLocation.Latitude,
+                    3.0);
+
+                _logger.LogInformation($"?? Found {nearbyDrivers.Length} drivers for reassignment");
+
+                // Filter available drivers (exclude the driver who just declined)
+                var candidateIds = new List<int>();
+                var cutoff = DateTime.UtcNow.AddSeconds(-60);
+
+                foreach (var r in nearbyDrivers)
                 {
-                    RideId = ride.Id,
-                    Status = ride.Status.ToString(),
-                    ClearMap = true,
-                    Message = "Driver canceled this ride. Searching for new driver..."
-                };
+                    try
+                    {
+                        var did = int.Parse(r.Member);
 
-                // Notify user
-                await _notification.NotifyUserAsync(ride.UserId, cancelPayload);
-                _logger.LogInformation($"✓ User #{ride.UserId} notified about ride cancellation");
+                        // Skip the driver who declined
+                        if (did == request.DriverId)
+                        {
+                            _logger.LogInformation($"   ⏩ Skipping driver #{did} (declined this ride)");
+                            continue;
+                        }
 
-                // Notify driver (self-notification for consistency)
-                await _notification.NotifyDriverAsync(request.DriverId, cancelPayload);
-                _logger.LogInformation($"✓ Driver #{request.DriverId} notified about cancellation");
+                        var h = await _redis.HashGetAllAsync(RedisKeys.DriverHash(did));
+
+                        if (h.Length == 0)
+                            continue;
+
+                        var d = h.ToDictionary(x => x.Name.ToString(), x => x.Value.ToString());
+
+                        if (d.TryGetValue("status", out var status) && status == "Free" &&
+                            d.TryGetValue("updatedAt", out var updatedStr) &&
+                            DateTime.TryParse(updatedStr, out var upd) &&
+                            upd > cutoff)
+                        {
+                            candidateIds.Add(did);
+                            _logger.LogInformation($"   ✓ Driver #{did} is available for reassignment");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, $"Failed to check driver availability");
+                    }
+                }
+
+                // Send new ride request to available drivers
+                if (candidateIds.Count > 0)
+                {
+                    _logger.LogInformation($"?? Notifying {candidateIds.Count} drivers about reassigned ride");
+
+                    var estimatedFare = await _fareCalculator.CalculateEstimatedFareAsync(
+                        ride.RequestedVehicleType.ToString(),
+                        distanceKm ?? 0,
+                        durationMin ?? 0,
+                        DateTime.UtcNow);
+
+                    var driverPayload = new NewRideRequestPayload
+                    {
+                        RideId = ride.Id,
+                        VehicleType = ride.RequestedVehicleType.ToString(),
+                        PickupLat = ride.StartLocation.Latitude,
+                        PickupLng = ride.StartLocation.Longitude,
+                        DestinationLat = ride.EndLocation.Latitude,
+                        DestinationLng = ride.EndLocation.Longitude,
+                        EncodedPolyline = polyline,
+                        EstimatedFare = estimatedFare,
+                        DistanceKm = distanceKm ?? 0,
+                        DurationMinutes = durationMin ?? 0
+                    };
+
+                    await _notification.NotifyNearestDriversAsync(candidateIds, driverPayload);
+                    _logger.LogInformation($"✓ Ride #{rideId} reassigned to {candidateIds.Count} drivers");
+
+                    // Notify user that a new driver is being searched
+                    var userPayload = new RideCompletionPayload
+                    {
+                        RideId = ride.Id,
+                        Status = "Pending",
+                        ClearMap = false,
+                        Message = "Driver not available. Searching for another driver..."
+                    };
+                    await _notification.NotifyUserAsync(ride.UserId, userPayload);
+                    _logger.LogInformation($"✓ User #{ride.UserId} notified about driver reassignment");
+                }
+                else
+                {
+                    _logger.LogWarning($"⚠️ No available drivers found for reassignment of ride #{rideId}");
+
+                    var userPayload = new RideCompletionPayload
+                    {
+                        RideId = ride.Id,
+                        Status = "Pending",
+                        ClearMap = false,
+                        Message = "Driver not available. Please wait while we search for another driver..."
+                    };
+                    await _notification.NotifyUserAsync(ride.UserId, userPayload);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to notify user/driver about cancellation");
+                _logger.LogError(ex, $"Failed to reassign ride #{rideId}");
+                throw;
             }
 
-            _logger.LogInformation($"✓ Ride #{rideId} canceled by driver #{request.DriverId}");
+            _logger.LogInformation($"✓ Ride #{rideId} reassignment process completed");
 
             return new CancelRideResponse
             {
                 RideId = ride.Id,
-                Status = ride.Status.ToString()
+                Status = "Pending" // Ride is now open for other drivers
             };
         }
 
