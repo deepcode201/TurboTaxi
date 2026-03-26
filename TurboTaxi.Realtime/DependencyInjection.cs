@@ -54,6 +54,7 @@ namespace TurboTaxi.Realtime
             });
 
             services.AddSingleton<IRedisService, RedisService>();
+            services.AddSingleton<IMessageQueueService, MessageQueueService>();
             services.AddScoped<IDriverLocationService, DriverLocationService>();
             services.AddScoped<IRideNotificationService, RideNotificationService>();
 
