@@ -396,22 +396,21 @@ namespace TurboTaxi.Infrastructure.Services
 
                 _logger.LogInformation($"?? Driver location: ({driverLat:F5}, {driverLng:F5}) - Valid: {hasLocation}");
 
+                if (!hasLocation)
+                {
+                    _logger.LogWarning($"?? Driver #{request.DriverId} has no valid location. Ask driver to send location before accepting ride.");
+                    throw new InvalidOperationException("Driver location is not available. Send a location update before accepting the ride.");
+                }
+
                 // Estimate route from driver to pickup
                 string? polyline = null;
                 double? distanceKm = null;
                 int? durationMin = null;
 
-                if (hasLocation)
-                {
-                    (polyline, distanceKm, durationMin) = await EstimateRouteAsync(
-                        driverLat, driverLng,
-                        ride.StartLocation.Latitude, ride.StartLocation.Longitude,
-                        ct);
-                }
-                else
-                {
-                    _logger.LogWarning($"?? Driver #{request.DriverId} has invalid location, skipping route estimation");
-                }
+                (polyline, distanceKm, durationMin) = await EstimateRouteAsync(
+                    driverLat, driverLng,
+                    ride.StartLocation.Latitude, ride.StartLocation.Longitude,
+                    ct);
 
                 // Update ride
                 ride.DriverId = request.DriverId;
@@ -451,8 +450,8 @@ namespace TurboTaxi.Infrastructure.Services
                         RideId = ride.Id,
                         Status = ride.Status.ToString(),
                         DriverId = ride.DriverId,
-                        DriverLat = hasLocation ? driverLat : (double?)null,
-                        DriverLng = hasLocation ? driverLng : (double?)null,
+                        DriverLat = driverLat,
+                        DriverLng = driverLng,
                         PickupLat = ride.StartLocation.Latitude,
                         PickupLng = ride.StartLocation.Longitude,
                         DestinationLat = ride.EndLocation.Latitude,
@@ -460,9 +459,7 @@ namespace TurboTaxi.Infrastructure.Services
                         EncodedPolyline = polyline,
                         DistanceKm = distanceKm,
                         DurationMinutes = durationMin,
-                        Message = hasLocation
-                            ? $"Driver is coming! ETA: {durationMin ?? 0} min"
-                            : "Driver accepted! Waiting for location..."
+                        Message = $"Driver is coming! ETA: {durationMin ?? 0} min"
                     });
                 }
                 catch (Exception ex)
