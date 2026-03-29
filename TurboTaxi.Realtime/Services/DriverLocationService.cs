@@ -14,17 +14,20 @@ namespace TurboTaxi.Realtime.Services
     {
         private readonly IRedisService _redis;
         private readonly IHubContext<DriverHub, IDriverClient> _driverHub;
+        private readonly IHubContext<UserHub, IUserClient> _userHub;
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<DriverLocationService> _logger;
 
         public DriverLocationService(
             IRedisService redis,
             IHubContext<DriverHub, IDriverClient> driverHub,
+            IHubContext<UserHub, IUserClient> userHub,
             IServiceProvider serviceProvider,
             ILogger<DriverLocationService> logger)
         {
             _redis = redis;
             _driverHub = driverHub;
+            _userHub = userHub;
             _serviceProvider = serviceProvider;
             _logger = logger;
         }
@@ -148,6 +151,12 @@ namespace TurboTaxi.Realtime.Services
         {
             try
             {
+                if (!IsValidCoordinate(lat, lng))
+                {
+                    _logger.LogWarning("[SignalR] Skipping user broadcast for driver #{DriverId} due to invalid coordinates ({Lat}, {Lng})", driverId, lat, lng);
+                    return;
+                }
+
                 // Check if driver has an active ride in Redis
                 var hashKey = RedisKeys.DriverHash(driverId);
                 var hash = await _redis.HashGetAllAsync(hashKey);
@@ -159,7 +168,7 @@ namespace TurboTaxi.Realtime.Services
                     _logger.LogDebug($"?? Broadcasting driver #{driverId} location to user #{userId}");
                     
                     // Broadcast to user group
-                    await _driverHub.Clients.Group($"user:{userId}")
+                    await _userHub.Clients.Group($"user:{userId}")
                         .DriverLocationUpdated(driverId, lat, lng);
                 }
             }
@@ -167,6 +176,13 @@ namespace TurboTaxi.Realtime.Services
             {
                 _logger.LogError(ex, $"Error broadcasting location to user for driver #{driverId}");
             }
+        }
+
+        private static bool IsValidCoordinate(double lat, double lng)
+        {
+            return lat != 0 && lng != 0 &&
+                   lat >= -90 && lat <= 90 &&
+                   lng >= -180 && lng <= 180;
         }
     }
 }
