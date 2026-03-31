@@ -1,51 +1,27 @@
-name: Deploy DEV (self-hosted)
+name: Deploy TurboTaxi DEV
 
 on:
   push:
     branches: ["develop"]
 
 concurrency:
-  group: deploy-dev-turbotaxi
+  group: turbotaxi-dev
   cancel-in-progress: true
 
 jobs:
   deploy:
-    runs-on: [self-hosted]
+    runs-on: [self-hosted, linux, turbotaxi]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Preflight
-        run: |
-          set -euo pipefail
-          whoami
-          id
-          docker --version
-          docker compose version
-          pwd
-
       - name: Docker cleanup before deploy
         run: |
           set -euo pipefail
-
-          echo "=== Docker disk usage BEFORE cleanup ==="
-          docker system df || true
-
-          echo "=== Remove build cache ==="
           docker builder prune -af || true
-
-          echo "=== Remove stopped containers ==="
           docker container prune -f || true
-
-          echo "=== Remove unused images ==="
-          docker image prune -af || true
-
-          echo "=== Remove unused networks ==="
-          docker network prune -f || true
-
-          echo "=== Docker disk usage AFTER cleanup ==="
-          docker system df || true
+          docker image prune -f || true
 
       - name: Prepare deploy directory
         id: prep
@@ -53,74 +29,32 @@ jobs:
           set -euo pipefail
           DIR="/var/lib/docker/deploy/turbotaxi/dev"
           echo "DIR=$DIR" >> "$GITHUB_OUTPUT"
-
-          rm -rf "$DIR" || true
+          rm -rf "$DIR"/*
           mkdir -p "$DIR"
 
-          ls -ld "$DIR"
-
-      - name: Copy project to server deploy dir
+      - name: Copy code
         run: |
           set -euo pipefail
-          if command -v rsync >/dev/null 2>&1; then
-            rsync -a --delete \
-              --exclude ".git" \
-              "$GITHUB_WORKSPACE/" "${{ steps.prep.outputs.DIR }}/"
-          else
-            cp -a "$GITHUB_WORKSPACE/." "${{ steps.prep.outputs.DIR }}/"
-          fi
-
-          ls -la "${{ steps.prep.outputs.DIR }}"
+          rsync -a --delete --exclude ".git" "$GITHUB_WORKSPACE/" "${{ steps.prep.outputs.DIR }}/"
 
       - name: Write .env
         working-directory: ${{ steps.prep.outputs.DIR }}
-        shell: bash
         run: |
           set -euo pipefail
           printf '%s\n' "${{ secrets.DEV_ENV_FILE }}" > .env
           chmod 600 .env
-          ls -la
 
-      - name: Deploy on server
+      - name: Deploy
         working-directory: ${{ steps.prep.outputs.DIR }}
         run: |
           set -euo pipefail
-
           test -f docker-compose.dev.yml
-
           docker compose -p turbotaxi-dev -f docker-compose.dev.yml down || true
           docker compose -p turbotaxi-dev -f docker-compose.dev.yml up -d --build
-
-          docker ps
           docker compose -p turbotaxi-dev -f docker-compose.dev.yml ps
 
-      - name: Remove source code after deploy
+      - name: Remove source code
         if: always()
         run: |
           set -euo pipefail
-          DIR="/var/lib/docker/deploy/turbotaxi/dev"
-
-          echo "Removing source code from $DIR"
-          rm -rf "$DIR" || true
-
-          echo "Source code removed"
-
-      - name: Docker cleanup after deploy
-        if: always()
-        run: |
-          set -euo pipefail
-
-          echo "=== Docker disk usage BEFORE final cleanup ==="
-          docker system df || true
-
-          echo "=== Remove build cache ==="
-          docker builder prune -af || true
-
-          echo "=== Remove stopped containers ==="
-          docker container prune -f || true
-
-          echo "=== Remove dangling images ==="
-          docker image prune -f || true
-
-          echo "=== Final Docker disk usage ==="
-          docker system df || true
+          find /var/lib/docker/deploy/turbotaxi/dev -mindepth 1 -maxdepth 1 ! -name ".env" -exec rm -rf {} +
