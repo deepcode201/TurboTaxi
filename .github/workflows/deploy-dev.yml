@@ -1,11 +1,11 @@
-name: Deploy DEV (self-hosted, temp dir)
+name: Deploy DEV (self-hosted)
 
 on:
   push:
     branches: ["develop"]
 
 concurrency:
-  group: deploy-dev
+  group: deploy-dev-turbotaxi
   cancel-in-progress: true
 
 jobs:
@@ -16,26 +16,50 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Preflight (whoami, docker, tools)
+      - name: Preflight
         run: |
           set -euo pipefail
           whoami
           id
           docker --version
           docker compose version
-          command -v rsync >/dev/null 2>&1 || echo "WARN: rsync not found (install it or replace with cp)"
+          pwd
 
-      - name: Create temp deploy directory
+      - name: Docker cleanup before deploy
+        run: |
+          set -euo pipefail
+
+          echo "=== Docker disk usage BEFORE cleanup ==="
+          docker system df || true
+
+          echo "=== Remove build cache ==="
+          docker builder prune -af || true
+
+          echo "=== Remove stopped containers ==="
+          docker container prune -f || true
+
+          echo "=== Remove unused images ==="
+          docker image prune -af || true
+
+          echo "=== Remove unused networks ==="
+          docker network prune -f || true
+
+          echo "=== Docker disk usage AFTER cleanup ==="
+          docker system df || true
+
+      - name: Prepare deploy directory
         id: prep
         run: |
           set -euo pipefail
-          DIR="/tmp/turbotaxi-dev"
+          DIR="/var/lib/docker/deploy/turbotaxi/dev"
           echo "DIR=$DIR" >> "$GITHUB_OUTPUT"
-          rm -rf "$DIR"
-          mkdir -p "$DIR"
-          echo "Using $DIR"
 
-      - name: Copy code into temp dir
+          rm -rf "$DIR" || true
+          mkdir -p "$DIR"
+
+          ls -ld "$DIR"
+
+      - name: Copy project to server deploy dir
         run: |
           set -euo pipefail
           if command -v rsync >/dev/null 2>&1; then
@@ -43,39 +67,60 @@ jobs:
               --exclude ".git" \
               "$GITHUB_WORKSPACE/" "${{ steps.prep.outputs.DIR }}/"
           else
-            # Fallback
             cp -a "$GITHUB_WORKSPACE/." "${{ steps.prep.outputs.DIR }}/"
           fi
 
-      - name: Write .env from GitHub Secret (DEV_ENV_FILE)
+          ls -la "${{ steps.prep.outputs.DIR }}"
+
+      - name: Write .env
         working-directory: ${{ steps.prep.outputs.DIR }}
         shell: bash
         run: |
           set -euo pipefail
-          # Secret-i olduğu kimi yazır (newline-lar qorunur)
           printf '%s\n' "${{ secrets.DEV_ENV_FILE }}" > .env
           chmod 600 .env
-          echo ".env written ($(wc -l < .env) lines)"
+          ls -la
 
-      - name: Deploy DEV (down old, remove volumes, up new)
+      - name: Deploy on server
         working-directory: ${{ steps.prep.outputs.DIR }}
         run: |
           set -euo pipefail
 
-          echo "Files:"
-          ls -la
           test -f docker-compose.dev.yml
 
-          # Köhnəni endir (DB sıfırlansın deyirsənsə -v qalır)
-          docker compose -p turbotaxi-dev -f docker-compose.dev.yml down -v || true
-
-          # Yeni build + start
+          docker compose -p turbotaxi-dev -f docker-compose.dev.yml down || true
           docker compose -p turbotaxi-dev -f docker-compose.dev.yml up -d --build
 
           docker ps
           docker compose -p turbotaxi-dev -f docker-compose.dev.yml ps
 
-      - name: Cleanup temp directory
+      - name: Remove source code after deploy
         if: always()
         run: |
-          rm -rf "${{ steps.prep.outputs.DIR }}"
+          set -euo pipefail
+          DIR="/var/lib/docker/deploy/turbotaxi/dev"
+
+          echo "Removing source code from $DIR"
+          rm -rf "$DIR" || true
+
+          echo "Source code removed"
+
+      - name: Docker cleanup after deploy
+        if: always()
+        run: |
+          set -euo pipefail
+
+          echo "=== Docker disk usage BEFORE final cleanup ==="
+          docker system df || true
+
+          echo "=== Remove build cache ==="
+          docker builder prune -af || true
+
+          echo "=== Remove stopped containers ==="
+          docker container prune -f || true
+
+          echo "=== Remove dangling images ==="
+          docker image prune -f || true
+
+          echo "=== Final Docker disk usage ==="
+          docker system df || true
