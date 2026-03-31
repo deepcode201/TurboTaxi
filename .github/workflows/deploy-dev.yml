@@ -5,7 +5,7 @@ on:
     branches: ["develop"]
 
 concurrency:
-  group: turbotaxi-dev
+  group: deploy-dev
   cancel-in-progress: true
 
 jobs:
@@ -25,7 +25,7 @@ jobs:
           id
           docker --version
           docker compose version
-          pwd
+          command -v rsync >/dev/null 2>&1 || echo "WARN: rsync not found (install it or replace with cp)"
 
       - name: Docker cleanup before deploy
         run: |
@@ -51,9 +51,10 @@ jobs:
           mkdir -p "$DIR"
           find "$DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} + || true
 
+          echo "Using $DIR"
           ls -ld "$DIR"
 
-      - name: Copy project to server deploy dir
+      - name: Copy code into deploy dir
         run: |
           set -euo pipefail
           if command -v rsync >/dev/null 2>&1; then
@@ -66,22 +67,25 @@ jobs:
 
           ls -la "${{ steps.prep.outputs.DIR }}"
 
-      - name: Write .env
+      - name: Write .env from GitHub Secret
         working-directory: ${{ steps.prep.outputs.DIR }}
+        shell: bash
         run: |
           set -euo pipefail
           printf '%s\n' "${{ secrets.DEV_ENV_FILE }}" > .env
           chmod 600 .env
-          ls -la
+          echo ".env written ($(wc -l < .env) lines)"
 
-      - name: Deploy on server
+      - name: Deploy DEV
         working-directory: ${{ steps.prep.outputs.DIR }}
         run: |
           set -euo pipefail
 
+          echo "Files:"
+          ls -la
           test -f docker-compose.dev.yml
 
-          docker compose -p turbotaxi-dev -f docker-compose.dev.yml down || true
+          docker compose -p turbotaxi-dev -f docker-compose.dev.yml down -v || true
           docker compose -p turbotaxi-dev -f docker-compose.dev.yml up -d --build
 
           docker ps
