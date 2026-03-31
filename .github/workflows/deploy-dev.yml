@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, linux, turbotaxi]
+    runs-on: [self-hosted]
 
     steps:
       - name: Checkout code
