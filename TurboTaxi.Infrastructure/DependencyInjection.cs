@@ -12,7 +12,25 @@ namespace TurboTaxi.Infrastructure
         public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
         {
             services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseSqlServer(configuration.GetConnectionString("DefaultConnection")));
+            {
+                var connectionString = configuration.GetConnectionString("DefaultConnection");
+
+                options.UseSqlServer(
+                    connectionString,
+                    sqlOptions =>
+                    {
+                        // Add retry policy for transient failures (network timeouts, connection drops)
+                        sqlOptions.EnableRetryOnFailure(
+                            maxRetryCount: 3,
+                            maxRetryDelay: TimeSpan.FromSeconds(10),
+                            errorNumbersToAdd: null
+                        );
+
+                        // Command timeout: Allow longer for initial queries
+                        sqlOptions.CommandTimeout(60);
+                    }
+                );
+            });
 
             services.AddHttpClient<IRouteEstimationService, RouteEstimationService>();
 
