@@ -878,7 +878,7 @@ namespace TurboTaxi.Infrastructure.Services
             ride.CanceledTime = DateTime.UtcNow;
             await _db.SaveChangesAsync(ct);
 
-            // Free driver if assigned
+            // Free driver if assigned and notify them
             if (ride.DriverId.HasValue)
             {
                 try
@@ -904,7 +904,7 @@ namespace TurboTaxi.Infrastructure.Services
                     await _redis.HashDeleteAsync(hKey, "currentRideId");
                     await _redis.HashDeleteAsync(hKey, "currentUserId");
 
-                    // 🔧 FIX: Notify driver with RideStatusUpdated (not just NotifyDriver)
+                    // Notify driver about cancellation
                     var driverCancelPayload = new RideCompletionPayload
                     {
                         RideId = ride.Id,
@@ -922,22 +922,20 @@ namespace TurboTaxi.Infrastructure.Services
                 }
             }
 
-            // If pending and no driver, notify all drivers and clean up notification keys
-            if (prevStatus == RideStatus.Pending && !ride.DriverId.HasValue)
+            // Notify all drivers about ride cancellation to remove it from their notifications
+            try
             {
-                try
-                {
-                    // Clean up any notification keys for this ride
-                    await _redis.DeleteKeysByPatternAsync($"notify:ride:{rideId}:driver:*");
-                    _logger.LogInformation($"? Cleaned up notification keys for ride #{rideId}");
+                // Clean up notification keys from Redis
+                await _redis.DeleteKeysByPatternAsync($"notify:ride:{rideId}:driver:*");
+                _logger.LogInformation($"✓ Cleaned up notification keys for ride #{rideId}");
 
-                    await _notification.NotifyAllDriversRideCanceled(rideId);
-                    _logger.LogInformation($"? All drivers notified about ride #{rideId} cancellation");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to notify drivers or clean up keys");
-                }
+                // Send cancellation notification to all drivers (to remove ride from their UI)
+                await _notification.NotifyAllDriversRideCanceled(rideId);
+                _logger.LogInformation($"✓ All drivers notified about ride #{rideId} cancellation");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to notify drivers or clean up keys");
             }
 
             _logger.LogInformation($"✓ Ride #{rideId} canceled by user #{request.UserId}");
