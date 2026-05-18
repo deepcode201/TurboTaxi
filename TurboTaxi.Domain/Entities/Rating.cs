@@ -16,7 +16,7 @@ namespace TurboTaxi.Domain.Entities
         public int Stars { get; set; }            // 1–5
         public string? Comment { get; set; }
 
-        // Navigation
+        // Navigation  
         public Ride Ride { get; set; } = null!;
         public User FromUser { get; set; } = null!;
         public Driver? ToDriver { get; set; }
