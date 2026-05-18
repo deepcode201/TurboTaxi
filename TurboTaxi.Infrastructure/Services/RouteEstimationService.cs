@@ -11,15 +11,18 @@ namespace TurboTaxi.Infrastructure.Services
     {
         private readonly IConfiguration _config;
         private readonly HttpClient _http;
+        private readonly IFareCalculatorService _fareCalculator;
         private readonly ILogger<RouteEstimationService> _logger;
 
         public RouteEstimationService(
             IConfiguration config,
             HttpClient http,
+            IFareCalculatorService fareCalculator,
             ILogger<RouteEstimationService> logger)
         {
             _config = config;
-            _http   = http;
+            _http = http;
+            _fareCalculator = fareCalculator;
             _logger = logger;
         }
 
@@ -74,6 +77,7 @@ namespace TurboTaxi.Infrastructure.Services
             if (result.Success)
             {
                 _logger.LogInformation("[1/2] Succeeded");
+                await ApplyPriceAsync(result, request);
                 return result;
             }
             _logger.LogWarning("[1/2] Failed: {Msg}", result.Message);
@@ -84,6 +88,7 @@ namespace TurboTaxi.Infrastructure.Services
             if (result.Success)
             {
                 _logger.LogInformation("[2/2] Succeeded");
+                await ApplyPriceAsync(result, request);
                 return result;
             }
             _logger.LogError("[2/2] Failed: {Msg}", result.Message);
@@ -94,6 +99,7 @@ namespace TurboTaxi.Infrastructure.Services
             if (result.Success)
             {
                 _logger.LogInformation("[3/3] Succeeded");
+                await ApplyPriceAsync(result, request);
                 return result;
             }
 
@@ -181,8 +187,7 @@ namespace TurboTaxi.Infrastructure.Services
                         DistanceKm      = distanceKm,
                         DurationMinutes = durationMinutes,
                         EncodedPolyline = route.Polyline.EncodedPolyline,
-                        Source          = "Google",
-                        Price           = new RoutePriceDto()
+                        Source          = "Google"
                     }
                 };
             }
@@ -266,8 +271,7 @@ namespace TurboTaxi.Infrastructure.Services
                         DistanceKm = distanceKm,
                         DurationMinutes = durationMinutes,
                         EncodedPolyline = encoded,
-                        Source = "OSRM",
-                        Price = new RoutePriceDto()
+                        Source = "OSRM"
                     }
                 };
             }
@@ -298,6 +302,36 @@ namespace TurboTaxi.Infrastructure.Services
                 return (int)Math.Round(seconds / 60.0);
             }
             return 0;
+        }
+
+        private async Task ApplyPriceAsync(
+            RouteEstimateResponse response,
+            RouteEstimateRequest request)
+        {
+            if (response.Data == null)
+                return;
+
+            var originalFare = await _fareCalculator.CalculateEstimatedFareAsync(
+                request.VehicleType.ToString(),
+                response.Data.DistanceKm,
+                response.Data.DurationMinutes,
+                DateTime.UtcNow,
+                "Baku");
+
+            response.Data.Price = new RoutePriceDto
+            {
+                Original = (double)originalFare,
+                Discount = 0,
+                Final = (double)originalFare,
+                Currency = "AZN"
+            };
+
+            _logger.LogInformation(
+                "Route estimate price: {Fare:F2} AZN ({VehicleType}, {DistanceKm} km, {DurationMin} min)",
+                originalFare,
+                request.VehicleType,
+                response.Data.DistanceKm,
+                response.Data.DurationMinutes);
         }
 
         private static RouteEstimateResponse Fail(string message) =>
