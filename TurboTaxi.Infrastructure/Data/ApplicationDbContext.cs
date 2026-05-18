@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TurboTaxi.Domain.Entities;
+using TurboTaxi.Domain.Enums;
 
 namespace TurboTaxi.Infrastructure.Data
 {
@@ -111,6 +112,10 @@ namespace TurboTaxi.Infrastructure.Data
                 entity.Property(x => x.PricePerKm).HasColumnType("decimal(18,2)");
                 entity.Property(x => x.PricePerMinute).HasColumnType("decimal(18,2)");
                 entity.Property(x => x.MinimumFare).HasColumnType("decimal(18,2)");
+                entity.Property(x => x.FreeKm).HasColumnType("decimal(18,2)");
+                entity.Property(x => x.NightMultiplier).HasColumnType("decimal(18,2)");
+                entity.Property(x => x.CancellationFee).HasColumnType("decimal(18,2)");
+                entity.Property(x => x.WaitingPricePerMinute).HasColumnType("decimal(18,2)");
             });
 
             modelBuilder.Entity<Payment>(entity =>
