@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
-using System.Text;
 using TurboTaxi.Application.Interfaces;
 using TurboTaxi.Domain.Entities;
 using TurboTaxi.Domain.Enums;
@@ -122,108 +121,23 @@ namespace TurboTaxi.Infrastructure.Services
 
                 if (response.Success && response.Data != null && !string.IsNullOrWhiteSpace(response.Data.EncodedPolyline))
                 {
-                    _logger.LogInformation($"? Route: {response.Data.DistanceKm:F2} km, {response.Data.DurationMinutes} min");
+                    _logger.LogInformation(
+                        "Route via {Source}: {Dist:F2} km, {Min} min, polyline {Len} chars",
+                        response.Data.Source,
+                        response.Data.DistanceKm,
+                        response.Data.DurationMinutes,
+                        response.Data.EncodedPolyline.Length);
                     return (response.Data.EncodedPolyline, response.Data.DistanceKm, response.Data.DurationMinutes);
                 }
 
-                _logger.LogWarning("?? Route estimation returned no valid data, using fallback calculation");
-
-                // Fallback: Calculate approximate distance using Haversine formula
-                double approximateDistanceKm = CalculateApproximateDistance(originLat, originLng, destLat, destLng);
-                int approximateDurationMin = (int)Math.Round(approximateDistanceKm * 2); // Rough estimate: 2 min per km
-
-                // Fallback: Create a simple encoded polyline (straight line between two points)
-                string fallbackPolyline = CreateSimplePolyline(originLat, originLng, destLat, destLng);
-
-                return (fallbackPolyline, approximateDistanceKm, approximateDurationMin);
+                _logger.LogError("Route estimation failed: {Message}", response.Message);
+                return (null, null, null);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "? Route estimation failed, using fallback calculation");
-
-                // Fallback: Calculate approximate distance
-                double approximateDistanceKm = CalculateApproximateDistance(originLat, originLng, destLat, destLng);
-                int approximateDurationMin = (int)Math.Round(approximateDistanceKm * 2);
-
-                // Fallback: Create a simple encoded polyline
-                string fallbackPolyline = CreateSimplePolyline(originLat, originLng, destLat, destLng);
-
-                return (fallbackPolyline, approximateDistanceKm, approximateDurationMin);
+                _logger.LogError(ex, "Route estimation failed");
+                return (null, null, null);
             }
-        }
-
-        private static double CalculateApproximateDistance(double lat1, double lon1, double lat2, double lon2)
-        {
-            const double R = 6371; // Earth's radius in kilometers
-            double dLat = DegreesToRadians(lat2 - lat1);
-            double dLon = DegreesToRadians(lon2 - lon1);
-
-            double a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
-                       Math.Cos(DegreesToRadians(lat1)) * Math.Cos(DegreesToRadians(lat2)) *
-                       Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
-
-            double c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-            double distance = R * c;
-
-            return Math.Round(distance, 2);
-        }
-
-        private static double DegreesToRadians(double degrees)
-        {
-            return degrees * Math.PI / 180;
-        }
-
-        private static string CreateSimplePolyline(double lat1, double lon1, double lat2, double lon2)
-        {
-            // Create a simple 2-point polyline (straight line between origin and destination)
-            // Google Maps Polyline Algorithm Format
-            // This is a very basic implementation - just encodes the two endpoints
-
-            List<(double lat, double lng)> points = new()
-            {
-                (lat1, lon1),
-                (lat2, lon2)
-            };
-
-            return EncodePolyline(points);
-        }
-
-        private static string EncodePolyline(List<(double lat, double lng)> points)
-        {
-            // Google Maps Polyline encoding algorithm
-            var encoded = new StringBuilder();
-            int prevLat = 0;
-            int prevLng = 0;
-
-            foreach (var (lat, lng) in points)
-            {
-                int currLat = (int)Math.Round(lat * 1e5);
-                int currLng = (int)Math.Round(lng * 1e5);
-
-                EncodeValue(encoded, currLat - prevLat);
-                EncodeValue(encoded, currLng - prevLng);
-
-                prevLat = currLat;
-                prevLng = currLng;
-            }
-
-            return encoded.ToString();
-        }
-
-        private static void EncodeValue(StringBuilder encoded, int value)
-        {
-            value = value << 1;
-            if (value < 0)
-                value = ~value;
-
-            while (value >= 0x20)
-            {
-                int chunk = (0x20 | (value & 0x1f)) + 63;
-                encoded.Append((char)chunk);
-                value >>= 5;
-            }
-
-            encoded.Append((char)(value + 63));
         }
 
         private static decimal CalculateDiscountAmount(decimal originalFare, PromoCode promoCode)
@@ -304,11 +218,16 @@ namespace TurboTaxi.Infrastructure.Services
 
                 _logger.LogInformation($"? Ride #{ride.Id} created");
 
-                // Estimate route
+                // Estimate route (pickup -> destination)
                 var (polyline, distanceKm, durationMin) = await EstimateRouteAsync(
                     request.PickupLat, request.PickupLng,
                     request.DestinationLat ?? 0, request.DestinationLng ?? 0,
                     ct);
+
+                ride.RoutePolyline = polyline;
+                ride.EstimatedDistanceKm = distanceKm;
+                ride.EstimatedDurationMinutes = durationMin;
+                await _db.SaveChangesAsync(ct);
 
                 // Find nearby drivers
                 _logger.LogInformation($"?? Searching for nearby drivers...");
@@ -443,6 +362,8 @@ namespace TurboTaxi.Infrastructure.Services
                         DestinationLat = request.DestinationLat,
                         DestinationLng = request.DestinationLng,
                         EncodedPolyline = polyline,
+                        TripEncodedPolyline = polyline,
+                        PolylinePhase = "Trip",
                         DistanceKm = distanceKm,
                         DurationMinutes = durationMin,
                         EstimatedFare = estimatedFare,
@@ -553,22 +474,38 @@ namespace TurboTaxi.Infrastructure.Services
                 }
 
                 // Estimate route from driver to pickup
-                string? polyline = null;
-                double? distanceKm = null;
-                int? durationMin = null;
+                string? approachPolyline;
+                double? approachDistanceKm;
+                int? approachDurationMin;
 
-                (polyline, distanceKm, durationMin) = await EstimateRouteAsync(
+                (approachPolyline, approachDistanceKm, approachDurationMin) = await EstimateRouteAsync(
                     driverLat, driverLng,
                     ride.StartLocation.Latitude, ride.StartLocation.Longitude,
                     ct);
+
+                if (string.IsNullOrWhiteSpace(approachPolyline))
+                {
+                    _logger.LogError("Could not compute driver->pickup route for ride #{RideId}", rideId);
+                    throw new InvalidOperationException("Could not calculate route to pickup. Please try again.");
+                }
+
+                // Keep trip polyline (pickup -> destination) for user map overview
+                var tripPolyline = ride.RoutePolyline;
+                if (string.IsNullOrWhiteSpace(tripPolyline))
+                {
+                    (tripPolyline, _, _) = await EstimateRouteAsync(
+                        ride.StartLocation.Latitude, ride.StartLocation.Longitude,
+                        ride.EndLocation.Latitude, ride.EndLocation.Longitude,
+                        ct);
+                }
 
                 // Update ride
                 ride.DriverId = request.DriverId;
                 ride.Status = RideStatus.Approved;
                 ride.AcceptedTime = DateTime.UtcNow;
-                ride.RoutePolyline = polyline;
-                ride.EstimatedDistanceKm = distanceKm;
-                ride.EstimatedDurationMinutes = durationMin;
+                ride.RoutePolyline = approachPolyline;
+                ride.EstimatedDistanceKm = approachDistanceKm;
+                ride.EstimatedDurationMinutes = approachDurationMin;
 
                 _logger.LogInformation($"   Saving ride changes to database...");
                 await _db.SaveChangesAsync(ct);
@@ -606,10 +543,12 @@ namespace TurboTaxi.Infrastructure.Services
                         PickupLng = ride.StartLocation.Longitude,
                         DestinationLat = ride.EndLocation.Latitude,
                         DestinationLng = ride.EndLocation.Longitude,
-                        EncodedPolyline = polyline,
-                        DistanceKm = distanceKm,
-                        DurationMinutes = durationMin,
-                        Message = $"Driver is coming! ETA: {durationMin ?? 0} min"
+                        EncodedPolyline = approachPolyline,
+                        TripEncodedPolyline = tripPolyline,
+                        PolylinePhase = "Approach",
+                        DistanceKm = approachDistanceKm,
+                        DurationMinutes = approachDurationMin,
+                        Message = $"Driver is coming! ETA: {approachDurationMin ?? 0} min"
                     });
                 }
                 catch (Exception ex)
@@ -624,9 +563,11 @@ namespace TurboTaxi.Infrastructure.Services
                     {
                         RideId = ride.Id,
                         Status = ride.Status.ToString(), // "Approved"
-                        EncodedPolyline = polyline,
-                        DistanceKm = distanceKm,
-                        DurationMinutes = durationMin,
+                        EncodedPolyline = approachPolyline,
+                        TripEncodedPolyline = tripPolyline,
+                        PolylinePhase = "Approach",
+                        DistanceKm = approachDistanceKm,
+                        DurationMinutes = approachDurationMin,
                         ClearMap = false,
                         Message = "You accepted this ride! Navigate to pickup location",
                         UserType = "driver"
@@ -752,6 +693,8 @@ namespace TurboTaxi.Infrastructure.Services
                     DestinationLat = ride.EndLocation.Latitude,
                     DestinationLng = ride.EndLocation.Longitude,
                     EncodedPolyline = polyline,
+                    TripEncodedPolyline = polyline,
+                    PolylinePhase = "EnRoute",
                     DistanceKm = distanceKm,
                     DurationMinutes = durationMin,
                     Message = $"Trip started! ETA: {durationMin ?? 0} min"
@@ -773,6 +716,8 @@ namespace TurboTaxi.Infrastructure.Services
                     DestinationLat = ride.EndLocation.Latitude,
                     DestinationLng = ride.EndLocation.Longitude,
                     EncodedPolyline = polyline,
+                    TripEncodedPolyline = polyline,
+                    PolylinePhase = "EnRoute",
                     DistanceKm = distanceKm,
                     DurationMinutes = durationMin,
                     Message = "Trip started - navigate to destination"

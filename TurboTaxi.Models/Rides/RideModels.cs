@@ -104,6 +104,10 @@ namespace TurboTaxi.Models.Rides
         public string? Message { get; set; }
         public string? UserType { get; set; } // "user" or "driver" - for client-side handling
         public string? EncodedPolyline { get; set; } // Google Maps encoded polyline
+        /// <summary>Pickup -> destination route (shown while waiting for driver).</summary>
+        public string? TripEncodedPolyline { get; set; }
+        /// <summary>Approach | Trip | EnRoute — which polyline is in EncodedPolyline.</summary>
+        public string? PolylinePhase { get; set; }
         public double? DistanceKm { get; set; } // Distance in kilometers
         public int? DurationMinutes { get; set; } // Estimated trip duration
     }

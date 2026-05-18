@@ -88,7 +88,17 @@ namespace TurboTaxi.Infrastructure.Services
             }
             _logger.LogError("[2/2] Failed: {Msg}", result.Message);
 
-            return Fail($"Google Routes API failed. Last error: {result.Message}");
+            // ── Attempt 3: OSRM (road-following fallback, no API key) ───────
+            _logger.LogInformation("[3/3] OSRM public routing...");
+            result = await CallOsrmAsync(request, ct);
+            if (result.Success)
+            {
+                _logger.LogInformation("[3/3] Succeeded");
+                return result;
+            }
+
+            _logger.LogError("[3/3] Failed: {Msg}", result.Message);
+            return Fail($"All routing providers failed. Last error: {result.Message}");
         }
 
         private async Task<RouteEstimateResponse> CallGoogleAsync(
@@ -185,6 +195,91 @@ namespace TurboTaxi.Infrastructure.Services
             {
                 _logger.LogError(ex, "Google [{Pref}] exception", routingPreference);
                 return Fail($"Google API exception: {ex.Message}");
+            }
+        }
+
+        private async Task<RouteEstimateResponse> CallOsrmAsync(
+            RouteEstimateRequest request,
+            CancellationToken ct)
+        {
+            var baseUrl = _config["Routing:OsrmBaseUrl"]?.Trim();
+            if (string.IsNullOrWhiteSpace(baseUrl))
+                baseUrl = "http://router.project-osrm.org";
+
+            var url =
+                $"{baseUrl.TrimEnd('/')}/route/v1/driving/" +
+                $"{request.Origin.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}," +
+                $"{request.Origin.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)};" +
+                $"{request.Destination.Longitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}," +
+                $"{request.Destination.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}" +
+                "?overview=full&geometries=polyline";
+
+            try
+            {
+                using var resp = await _http.GetAsync(url, ct);
+                var json = await resp.Content.ReadAsStringAsync(ct);
+
+                if (!resp.IsSuccessStatusCode)
+                {
+                    _logger.LogError("OSRM HTTP {Code}: {Body}", (int)resp.StatusCode, json);
+                    return Fail($"OSRM HTTP {(int)resp.StatusCode}");
+                }
+
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                if (!root.TryGetProperty("routes", out var routes) || routes.GetArrayLength() == 0)
+                {
+                    _logger.LogWarning("OSRM returned no routes");
+                    return Fail("OSRM returned no route data.");
+                }
+
+                var route = routes[0];
+                if (!route.TryGetProperty("geometry", out var geometryEl))
+                    return Fail("OSRM route missing geometry.");
+
+                var encoded = geometryEl.GetString();
+                if (string.IsNullOrWhiteSpace(encoded))
+                    return Fail("OSRM route geometry is empty.");
+
+                var distanceMeters = route.TryGetProperty("distance", out var distEl)
+                    ? distEl.GetDouble()
+                    : 0;
+                var durationSeconds = route.TryGetProperty("duration", out var durEl)
+                    ? durEl.GetDouble()
+                    : 0;
+
+                var distanceKm = Math.Round(distanceMeters / 1000.0, 2);
+                var durationMinutes = (int)Math.Max(1, Math.Round(durationSeconds / 60.0));
+
+                _logger.LogInformation(
+                    "OSRM -> {Dist}km / {Min}min | polyline:{Len}ch",
+                    distanceKm,
+                    durationMinutes,
+                    encoded.Length);
+
+                return new RouteEstimateResponse
+                {
+                    Success = true,
+                    Message = "Route via OSRM",
+                    Data = new RouteEstimateData
+                    {
+                        DistanceKm = distanceKm,
+                        DurationMinutes = durationMinutes,
+                        EncodedPolyline = encoded,
+                        Source = "OSRM",
+                        Price = new RoutePriceDto()
+                    }
+                };
+            }
+            catch (TaskCanceledException)
+            {
+                _logger.LogError("OSRM request timed out.");
+                return Fail("OSRM request timed out.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "OSRM exception");
+                return Fail($"OSRM exception: {ex.Message}");
             }
         }
 
