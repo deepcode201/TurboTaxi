@@ -27,7 +27,8 @@ namespace TurboTaxi.Infrastructure.Services
             string vehicleType,
             double? distanceKm,
             int? durationMinutes,
-            DateTime? rideStartTime = null)
+            DateTime? rideStartTime = null,
+            string? city = "Baku")
         {
             try
             {
@@ -45,14 +46,26 @@ namespace TurboTaxi.Infrastructure.Services
                     parsedVehicleType = VehicleType.Eco;
                 }
 
-                // Get tariff for vehicle type
+                // Default city to Baku if not provided
+                if (string.IsNullOrWhiteSpace(city))
+                    city = "Baku";
+
+                // Get tariff for vehicle type and city
                 var tariff = await _db.Tariffs
                     .AsNoTracking()
-                    .FirstOrDefaultAsync(t => t.VehicleType == parsedVehicleType && t.IsActive);
+                    .FirstOrDefaultAsync(t => t.VehicleType == parsedVehicleType && t.City == city && t.IsActive);
+
+                // Fallback to any active tariff for this vehicle type if city-specific not found
+                if (tariff == null)
+                {
+                    tariff = await _db.Tariffs
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(t => t.VehicleType == parsedVehicleType && t.IsActive);
+                }
 
                 if (tariff == null)
                 {
-                    _logger.LogWarning($"No active tariff found for {parsedVehicleType}, using default minimum fare");
+                    _logger.LogWarning($"No active tariff found for {parsedVehicleType} in {city}, using default minimum fare");
                     return 10m;
                 }
 
@@ -98,7 +111,8 @@ namespace TurboTaxi.Infrastructure.Services
             string vehicleType,
             double actualDistanceKm,
             int actualDurationMinutes,
-            DateTime rideStartTime)
+            DateTime rideStartTime,
+            string? city = "Baku")
         {
             try
             {
@@ -116,14 +130,26 @@ namespace TurboTaxi.Infrastructure.Services
                     parsedVehicleType = VehicleType.Eco;
                 }
 
-                // Get tariff for vehicle type
+                // Default city to Baku if not provided
+                if (string.IsNullOrWhiteSpace(city))
+                    city = "Baku";
+
+                // Get tariff for vehicle type and city
                 var tariff = await _db.Tariffs
                     .AsNoTracking()
-                    .FirstOrDefaultAsync(t => t.VehicleType == parsedVehicleType && t.IsActive);
+                    .FirstOrDefaultAsync(t => t.VehicleType == parsedVehicleType && t.City == city && t.IsActive);
+
+                // Fallback to any active tariff for this vehicle type if city-specific not found
+                if (tariff == null)
+                {
+                    tariff = await _db.Tariffs
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(t => t.VehicleType == parsedVehicleType && t.IsActive);
+                }
 
                 if (tariff == null)
                 {
-                    _logger.LogWarning($"No active tariff found for {parsedVehicleType}, using default minimum fare");
+                    _logger.LogWarning($"No active tariff found for {parsedVehicleType} in {city}, using default minimum fare");
                     return 10m;
                 }
 

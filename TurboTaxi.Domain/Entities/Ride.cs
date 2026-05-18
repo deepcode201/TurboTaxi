@@ -59,6 +59,7 @@ namespace TurboTaxi.Domain.Entities
 
         public ICollection<RideStatusHistory> StatusHistory { get; set; } = new List<RideStatusHistory>();
         public ICollection<Rating> Ratings { get; set; } = new List<Rating>();
+        public ICollection<RideChatMessage> ChatMessages { get; set; } = new List<RideChatMessage>();
     }
 
 }

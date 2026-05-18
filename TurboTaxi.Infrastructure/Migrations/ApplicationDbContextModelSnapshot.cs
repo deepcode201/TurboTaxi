@@ -51,7 +51,7 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasIndex("VehicleId");
 
-                    b.ToTable("Drivers");
+                    b.ToTable("Drivers", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.DriverStatusHistory", b =>
@@ -84,7 +84,7 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasIndex("DriverId");
 
-                    b.ToTable("DriverStatusHistories");
+                    b.ToTable("DriverStatusHistories", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.Location", b =>
@@ -121,7 +121,7 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Locations");
+                    b.ToTable("Locations", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.Notification", b =>
@@ -167,7 +167,7 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Notifications");
+                    b.ToTable("Notifications", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.Payment", b =>
@@ -211,7 +211,7 @@ namespace TurboTaxi.Infrastructure.Migrations
                     b.HasIndex("RideId")
                         .IsUnique();
 
-                    b.ToTable("Payments");
+                    b.ToTable("Payments", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.PromoCode", b =>
@@ -261,7 +261,7 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("PromoCodes");
+                    b.ToTable("PromoCodes", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.Rating", b =>
@@ -306,7 +306,7 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasIndex("ToUserId");
 
-                    b.ToTable("Ratings");
+                    b.ToTable("Ratings", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.Ride", b =>
@@ -408,7 +408,42 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Rides");
+                    b.ToTable("Rides", (string)null);
+                });
+
+            modelBuilder.Entity("TurboTaxi.Domain.Entities.RideChatMessage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("RideId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SenderId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SenderRole")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RideId");
+
+                    b.ToTable("RideChatMessages", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.RideStatusHistory", b =>
@@ -447,7 +482,7 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasIndex("RideId");
 
-                    b.ToTable("RideStatusHistories");
+                    b.ToTable("RideStatusHistories", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.Tariff", b =>
@@ -519,7 +554,7 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Tariffs");
+                    b.ToTable("Tariffs", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.User", b =>
@@ -561,7 +596,7 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.UserFavoriteLocation", b =>
@@ -593,7 +628,7 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("UserFavoriteLocations");
+                    b.ToTable("UserFavoriteLocations", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.UserPromoCode", b =>
@@ -623,7 +658,7 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasIndex("PromoCodeId");
 
-                    b.ToTable("UserPromoCodes");
+                    b.ToTable("UserPromoCodes", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.Vehicle", b =>
@@ -664,7 +699,7 @@ namespace TurboTaxi.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Vehicles");
+                    b.ToTable("Vehicles", (string)null);
                 });
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.Driver", b =>
@@ -805,6 +840,17 @@ namespace TurboTaxi.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("TurboTaxi.Domain.Entities.RideChatMessage", b =>
+                {
+                    b.HasOne("TurboTaxi.Domain.Entities.Ride", "Ride")
+                        .WithMany("ChatMessages")
+                        .HasForeignKey("RideId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Ride");
+                });
+
             modelBuilder.Entity("TurboTaxi.Domain.Entities.RideStatusHistory", b =>
                 {
                     b.HasOne("TurboTaxi.Domain.Entities.Ride", "Ride")
@@ -879,6 +925,8 @@ namespace TurboTaxi.Infrastructure.Migrations
 
             modelBuilder.Entity("TurboTaxi.Domain.Entities.Ride", b =>
                 {
+                    b.Navigation("ChatMessages");
+
                     b.Navigation("Payment");
 
                     b.Navigation("Ratings");

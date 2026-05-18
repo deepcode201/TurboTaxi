@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using TurboTaxi.Domain.Entities;
+using TurboTaxi.Domain.Enums;
 
 namespace TurboTaxi.Infrastructure.Data
 {
@@ -24,6 +25,7 @@ namespace TurboTaxi.Infrastructure.Data
         public DbSet<UserFavoriteLocation> UserFavoriteLocations => Set<UserFavoriteLocation>();
         public DbSet<Rating> Ratings => Set<Rating>();
         public DbSet<Tariff> Tariffs => Set<Tariff>();
+        public DbSet<RideChatMessage> RideChatMessages => Set<RideChatMessage>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -77,6 +79,16 @@ namespace TurboTaxi.Infrastructure.Data
                 .WithMany(r => r.StatusHistory)
                 .HasForeignKey(h => h.RideId);
 
+            modelBuilder.Entity<RideChatMessage>()
+                .HasOne(m => m.Ride)
+                .WithMany(r => r.ChatMessages)
+                .HasForeignKey(m => m.RideId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<RideChatMessage>()
+                .Property(m => m.Body)
+                .HasMaxLength(4000);
+
             modelBuilder.Entity<UserFavoriteLocation>()
                 .HasOne(uf => uf.User)
                 .WithMany(u => u.FavoriteLocations)
@@ -111,6 +123,10 @@ namespace TurboTaxi.Infrastructure.Data
                 entity.Property(x => x.PricePerKm).HasColumnType("decimal(18,2)");
                 entity.Property(x => x.PricePerMinute).HasColumnType("decimal(18,2)");
                 entity.Property(x => x.MinimumFare).HasColumnType("decimal(18,2)");
+                entity.Property(x => x.FreeKm).HasColumnType("decimal(18,2)");
+                entity.Property(x => x.NightMultiplier).HasColumnType("decimal(18,2)");
+                entity.Property(x => x.CancellationFee).HasColumnType("decimal(18,2)");
+                entity.Property(x => x.WaitingPricePerMinute).HasColumnType("decimal(18,2)");
             });
 
             modelBuilder.Entity<Payment>(entity =>

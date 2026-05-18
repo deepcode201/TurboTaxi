@@ -1,28 +1,20 @@
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
 
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+COPY TurboTaxi.API/TurboTaxi.API.csproj TurboTaxi.API/
+COPY TurboTaxi.Application/TurboTaxi.Application.csproj TurboTaxi.Application/
+COPY TurboTaxi.Domain/TurboTaxi.Domain.csproj TurboTaxi.Domain/
+COPY TurboTaxi.Infrastructure/TurboTaxi.Infrastructure.csproj TurboTaxi.Infrastructure/
+COPY TurboTaxi.Models/TurboTaxi.Models.csproj TurboTaxi.Models/
+
+RUN dotnet restore TurboTaxi.API/TurboTaxi.API.csproj
+
 COPY . .
-RUN npm run build
+RUN dotnet publish TurboTaxi.API/TurboTaxi.API.csproj -c Release -o /app/publish /p:UseAppHost=false
 
-FROM node:20-alpine AS runner
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
-
-ENV NODE_ENV=production
-ENV HOSTNAME=0.0.0.0
-ENV PORT=3000
-
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/messages ./messages
-COPY --from=builder /app/next.config.mjs ./next.config.mjs
-
-EXPOSE 3000
-
-CMD ["npm", "run", "start"]
+ENV ASPNETCORE_URLS=http://0.0.0.0:8080
+EXPOSE 8080
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "TurboTaxi.API.dll"]

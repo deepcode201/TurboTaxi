@@ -17,9 +17,15 @@ namespace TurboTaxi.Models.Rides
         public int RideId { get; set; }
         public string Status { get; set; } = null!;
         public List<int> CandidateDriverIds { get; set; } = new();
-        public decimal EstimatedFare { get; set; } // Estimated fare in AZN
-        public double? DistanceKm { get; set; } // Estimated distance in kilometers
-        public int? DurationMinutes { get; set; } // Estimated duration in minutes
+        /// <summary>Fare after promo (what user pays).</summary>
+        public decimal EstimatedFare { get; set; }
+        public decimal OriginalEstimatedFare { get; set; }
+        public decimal? DiscountAmount { get; set; }
+        public bool PromoApplied { get; set; }
+        public string? PromoCode { get; set; }
+        public int? PromoRemainingRides { get; set; }
+        public double? DistanceKm { get; set; }
+        public int? DurationMinutes { get; set; }
     }
 
     public class AcceptRideRequest
@@ -59,6 +65,11 @@ namespace TurboTaxi.Models.Rides
         public int RideId { get; set; }
         public string Status { get; set; } = null!;
         public decimal FinalPrice { get; set; }
+        public decimal OriginalFare { get; set; }
+        public decimal? DiscountAmount { get; set; }
+        public bool PromoApplied { get; set; }
+        public string? PromoCode { get; set; }
+        public int? PromoRemainingRides { get; set; }
         public DateTime FinishedAtUtc { get; set; }
     }
 
@@ -103,5 +114,12 @@ namespace TurboTaxi.Models.Rides
         public bool ClearMap { get; set; } = true;
         public string? Message { get; set; }
         public string? UserType { get; set; } // "user" or "driver" - for client-side handling
+        public string? EncodedPolyline { get; set; } // Google Maps encoded polyline
+        /// <summary>Pickup -> destination route (shown while waiting for driver).</summary>
+        public string? TripEncodedPolyline { get; set; }
+        /// <summary>Approach | Trip | EnRoute — which polyline is in EncodedPolyline.</summary>
+        public string? PolylinePhase { get; set; }
+        public double? DistanceKm { get; set; } // Distance in kilometers
+        public int? DurationMinutes { get; set; } // Estimated trip duration
     }
 }

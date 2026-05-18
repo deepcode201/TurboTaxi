@@ -8,6 +8,8 @@ namespace TurboTaxi.Models.Routes
         public Coordinate Destination { get; set; } = new();
         public VehicleType VehicleType { get; set; } = VehicleType.Eco;
         public string? PromoCode { get; set; }
+        /// <summary>Optional — when set, active promo is preview-applied to price.</summary>
+        public int? UserId { get; set; }
     }
 
     public class Coordinate

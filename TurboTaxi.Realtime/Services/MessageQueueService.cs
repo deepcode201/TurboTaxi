@@ -5,10 +5,6 @@ using TurboTaxi.Realtime.Hubs;
 
 namespace TurboTaxi.Realtime.Services
 {
-    /// <summary>
-    /// Message Queue Service - Ensures NO DATA LOSS
-    /// Queues messages and retries if delivery fails
-    /// </summary>
     public interface IMessageQueueService
     {
         Task<bool> EnqueueAndSendAsync(string hubGroup, string methodName, params object[] args);
@@ -18,25 +14,27 @@ namespace TurboTaxi.Realtime.Services
 
     public class MessageQueueService : IMessageQueueService
     {
-        private readonly IHubContext<DriverHub> _driverHub;
-        private readonly IHubContext<UserHub> _userHub;
+        private readonly IHubContext<DriverHub, IDriverClient> _driverHub;
+        private readonly IHubContext<DriverHub> _driverHubRaw;
+        private readonly IHubContext<UserHub, IUserClient> _userHub;
+        private readonly IHubContext<UserHub> _userHubRaw;
         private readonly ILogger<MessageQueueService> _logger;
 
-        // 🔧 In-memory queue for failed messages (will retry)
         private readonly ConcurrentQueue<QueuedMessage> _messageQueue = new();
-
-        // Track retry attempts
-        private readonly ConcurrentDictionary<string, int> _retryCount = new();
-        private const int MAX_RETRIES = 3;
-        private const int RETRY_DELAY_MS = 500;
+        private const int MaxRetries = 3;
+        private const int RetryDelayMs = 500;
 
         public MessageQueueService(
-            IHubContext<DriverHub> driverHub,
-            IHubContext<UserHub> userHub,
+            IHubContext<DriverHub, IDriverClient> driverHub,
+            IHubContext<DriverHub> driverHubRaw,
+            IHubContext<UserHub, IUserClient> userHub,
+            IHubContext<UserHub> userHubRaw,
             ILogger<MessageQueueService> logger)
         {
             _driverHub = driverHub;
+            _driverHubRaw = driverHubRaw;
             _userHub = userHub;
+            _userHubRaw = userHubRaw;
             _logger = logger;
         }
 
@@ -55,24 +53,21 @@ namespace TurboTaxi.Realtime.Services
 
             try
             {
-                // 🚀 Try to send immediately
                 var sent = await TrySendAsync(message);
-                
+
                 if (!sent)
                 {
-                    // Queue for retry if immediate send fails
                     _messageQueue.Enqueue(message);
-                    _logger.LogWarning($"[Queue] Message {messageId} queued for retry (group: {hubGroup}, method: {methodName})");
-                    
-                    // Start retry task
+                    _logger.LogWarning("[Queue] Message {MessageId} queued for retry (group: {Group}, method: {Method})",
+                        messageId, hubGroup, methodName);
                     _ = RetryQueuedMessagesAsync();
                 }
-                
+
                 return sent;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"[Queue] Error enqueuing message {messageId}");
+                _logger.LogError(ex, "[Queue] Error enqueuing message {MessageId}", messageId);
                 _messageQueue.Enqueue(message);
                 _ = RetryQueuedMessagesAsync();
                 return false;
@@ -84,78 +79,132 @@ namespace TurboTaxi.Realtime.Services
             try
             {
                 message.Attempts++;
+                var sent = await DispatchAsync(message);
 
-                if (message.HubGroup.StartsWith("driver:"))
+                if (sent)
                 {
-                    await _driverHub.Clients.Group(message.HubGroup)
-                        .SendCoreAsync(message.MethodName, message.Args);
+                    _logger.LogInformation("[Queue] Message {MessageId} sent (group: {Group}, method: {Method}, attempt: {Attempt})",
+                        message.Id, message.HubGroup, message.MethodName, message.Attempts);
                 }
-                else if (message.HubGroup.StartsWith("user:"))
+                else
                 {
-                    await _userHub.Clients.Group(message.HubGroup)
-                        .SendCoreAsync(message.MethodName, message.Args);
-                }
-                else if (message.HubGroup == "all_drivers")
-                {
-                    await _driverHub.Clients.All
-                        .SendCoreAsync(message.MethodName, message.Args);
+                    _logger.LogWarning("[Queue] Message {MessageId} not dispatched (unknown group: {Group})",
+                        message.Id, message.HubGroup);
                 }
 
-                _logger.LogInformation($"[Queue] Message {message.Id} sent successfully (attempt {message.Attempts})");
-                return true;
+                return sent;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, $"[Queue] Failed to send message {message.Id} (attempt {message.Attempts})");
+                _logger.LogWarning(ex, "[Queue] Failed to send message {MessageId} (attempt {Attempt})",
+                    message.Id, message.Attempts);
                 return false;
             }
+        }
+
+        private async Task<bool> DispatchAsync(QueuedMessage message)
+        {
+            if (string.Equals(message.MethodName, "NewRideRequest", StringComparison.OrdinalIgnoreCase)
+                && message.Args.Length >= 2)
+            {
+                var requestId = message.Args[0]?.ToString() ?? string.Empty;
+                var payload = message.Args[1];
+
+                if (message.HubGroup == "all_drivers")
+                {
+                    await _driverHub.Clients.All.NewRideRequest(requestId, payload);
+                    return true;
+                }
+
+                if (message.HubGroup.StartsWith("driver:", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _driverHub.Clients.Group(message.HubGroup).NewRideRequest(requestId, payload);
+                    return true;
+                }
+            }
+
+            if (string.Equals(message.MethodName, "RideStatusUpdated", StringComparison.OrdinalIgnoreCase)
+                && message.Args.Length >= 3)
+            {
+                var rideId = Convert.ToInt32(message.Args[0]);
+                var status = message.Args[1]?.ToString() ?? string.Empty;
+                var payload = message.Args[2];
+
+                if (message.HubGroup == "all_drivers")
+                {
+                    await _driverHub.Clients.All.RideStatusUpdated(rideId, status, payload);
+                    return true;
+                }
+
+                if (message.HubGroup.StartsWith("driver:", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _driverHub.Clients.Group(message.HubGroup).RideStatusUpdated(rideId, status, payload);
+                    return true;
+                }
+
+                if (message.HubGroup.StartsWith("user:", StringComparison.OrdinalIgnoreCase))
+                {
+                    await _userHub.Clients.Group(message.HubGroup).RideStatusUpdated(rideId, status, payload);
+                    return true;
+                }
+            }
+
+            if (message.HubGroup.StartsWith("driver:", StringComparison.OrdinalIgnoreCase))
+            {
+                await _driverHubRaw.Clients.Group(message.HubGroup).SendCoreAsync(message.MethodName, message.Args);
+                return true;
+            }
+
+            if (message.HubGroup.StartsWith("user:", StringComparison.OrdinalIgnoreCase))
+            {
+                await _userHubRaw.Clients.Group(message.HubGroup).SendCoreAsync(message.MethodName, message.Args);
+                return true;
+            }
+
+            return false;
         }
 
         private async Task RetryQueuedMessagesAsync()
         {
             while (_messageQueue.TryPeek(out var message))
             {
-                if (message.Attempts >= MAX_RETRIES)
+                if (message.Attempts >= MaxRetries)
                 {
                     _messageQueue.TryDequeue(out _);
-                    _logger.LogError($"[Queue] Message {message.Id} failed after {MAX_RETRIES} attempts - DROPPED");
+                    _logger.LogError("[Queue] Message {MessageId} dropped after {MaxRetries} attempts",
+                        message.Id, MaxRetries);
                     continue;
                 }
 
-                // Wait before retry
-                await Task.Delay(RETRY_DELAY_MS * message.Attempts);
+                await Task.Delay(RetryDelayMs * message.Attempts);
 
                 var sent = await TrySendAsync(message);
                 if (sent)
                 {
                     _messageQueue.TryDequeue(out _);
-                    _logger.LogInformation($"[Queue] Message {message.Id} sent on retry");
                 }
                 else
                 {
-                    // Keep in queue for next attempt
                     break;
                 }
             }
         }
 
-        public async Task<int> GetQueueCountAsync()
-        {
-            return _messageQueue.Count;
-        }
+        public Task<int> GetQueueCountAsync() => Task.FromResult(_messageQueue.Count);
 
-        public async Task ClearQueueAsync()
+        public Task ClearQueueAsync()
         {
             _messageQueue.Clear();
             _logger.LogInformation("[Queue] Message queue cleared");
+            return Task.CompletedTask;
         }
 
         private class QueuedMessage
         {
-            public string Id { get; set; }
-            public string HubGroup { get; set; }
-            public string MethodName { get; set; }
-            public object[] Args { get; set; }
+            public string Id { get; set; } = string.Empty;
+            public string HubGroup { get; set; } = string.Empty;
+            public string MethodName { get; set; } = string.Empty;
+            public object[] Args { get; set; } = Array.Empty<object>();
             public DateTime EnqueuedAt { get; set; }
             public int Attempts { get; set; }
         }

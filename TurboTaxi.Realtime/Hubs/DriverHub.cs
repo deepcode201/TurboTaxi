@@ -26,6 +26,8 @@ namespace TurboTaxi.Realtime.Hubs
         public override async Task OnConnectedAsync()
         {
             _logger.LogInformation($"[SignalR] Driver connected: {Context.ConnectionId}");
+            await Groups.AddToGroupAsync(Context.ConnectionId, "all_drivers");
+            _logger.LogInformation("[SignalR] Connection {ConnectionId} joined all_drivers", Context.ConnectionId);
             await base.OnConnectedAsync();
         }
 
