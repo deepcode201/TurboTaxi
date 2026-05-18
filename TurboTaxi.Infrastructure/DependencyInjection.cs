@@ -48,6 +48,8 @@ namespace TurboTaxi.Infrastructure
             services.AddScoped<IPendingRideChecker, PendingRideChecker>();
             services.AddScoped<IOffRouteDetectionService, OffRouteDetectionService>();
             services.AddScoped<IRideUserLookupService, RideUserLookupService>();
+            services.AddScoped<IRideChatAccess, RideChatAccessService>();
+            services.AddScoped<IChatService, ChatService>();
             
             return services;
         }

@@ -25,6 +25,7 @@ namespace TurboTaxi.Infrastructure.Data
         public DbSet<UserFavoriteLocation> UserFavoriteLocations => Set<UserFavoriteLocation>();
         public DbSet<Rating> Ratings => Set<Rating>();
         public DbSet<Tariff> Tariffs => Set<Tariff>();
+        public DbSet<RideChatMessage> RideChatMessages => Set<RideChatMessage>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -77,6 +78,16 @@ namespace TurboTaxi.Infrastructure.Data
                 .HasOne(h => h.Ride)
                 .WithMany(r => r.StatusHistory)
                 .HasForeignKey(h => h.RideId);
+
+            modelBuilder.Entity<RideChatMessage>()
+                .HasOne(m => m.Ride)
+                .WithMany(r => r.ChatMessages)
+                .HasForeignKey(m => m.RideId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<RideChatMessage>()
+                .Property(m => m.Body)
+                .HasMaxLength(4000);
 
             modelBuilder.Entity<UserFavoriteLocation>()
                 .HasOne(uf => uf.User)

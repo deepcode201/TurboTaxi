@@ -126,7 +126,8 @@ try
     // SignalR Hubs
     app.MapHub<DriverHub>("/hubs/driver").RequireCors("AllowAll");
     app.MapHub<UserHub>("/hubs/user").RequireCors("AllowAll");
-    Console.WriteLine("[STARTUP] SignalR hubs mapped: /hubs/driver, /hubs/user");
+    app.MapHub<ChatHub>(ChatHub.HubPath).RequireCors("AllowAll");
+    Console.WriteLine("[STARTUP] SignalR hubs mapped: /hubs/driver, /hubs/user, " + ChatHub.HubPath);
 
     Console.WriteLine("[STARTUP] Middleware configured");
 
@@ -177,6 +178,9 @@ try
         Console.WriteLine("   POST   /api/rides/{id}/accept  - Accept ride");
         Console.WriteLine("   POST   /api/rides/{id}/start   - Start ride");
         Console.WriteLine("   POST   /api/rides/{id}/finish  - Finish ride");
+        Console.WriteLine("   POST   /api/chat/rides/{id}/messages - Send ride chat message");
+        Console.WriteLine("   GET    /api/chat/rides/{id}/messages - Chat history (paged)");
+        Console.WriteLine("   GET    /api/chat/conversations        - Chat list (paged)");
         Console.WriteLine("   WS     /hubs/driver            - SignalR Hub");
 
         Console.WriteLine("\n" + new string('=', 80));
