@@ -5,6 +5,7 @@ using TurboTaxi.Application.Interfaces;
 using TurboTaxi.Domain.Entities;
 using TurboTaxi.Domain.Enums;
 using TurboTaxi.Infrastructure.Data;
+using TurboTaxi.Infrastructure.Helpers;
 using TurboTaxi.Models.PromoCodes;
 using TurboTaxi.Models.Rides;
 using TurboTaxi.Models.Routes;
@@ -510,17 +511,24 @@ namespace TurboTaxi.Infrastructure.Services
                     _logger.LogWarning(ex, $"Failed to clear stale driver state");
                 }
 
-                // Get driver location
+                // Get driver location (Redis, or optional coords from accept request)
                 var (driverLat, driverLng) = await GetDriverLocationAsync(request.DriverId);
-                bool hasLocation = IsValidCoordinate(driverLat, driverLng);
-
-                _logger.LogInformation($"?? Driver location: ({driverLat:F5}, {driverLng:F5}) - Valid: {hasLocation}");
-
-                if (!hasLocation)
+                if (!IsValidCoordinate(driverLat, driverLng)
+                    && IsValidCoordinate(request.DriverLat ?? 0, request.DriverLng ?? 0))
                 {
-                    _logger.LogWarning($"?? Driver #{request.DriverId} has no valid location. Ask driver to send location before accepting ride.");
-                    throw new InvalidOperationException("Driver location is not available. Send a location update before accepting the ride.");
+                    driverLat = request.DriverLat!.Value;
+                    driverLng = request.DriverLng!.Value;
+                    _logger.LogInformation("Using driver location from accept request body");
                 }
+
+                if (!IsValidCoordinate(driverLat, driverLng))
+                {
+                    _logger.LogWarning("Driver #{DriverId} has no location; using pickup as fallback for accept", request.DriverId);
+                    driverLat = ride.StartLocation.Latitude;
+                    driverLng = ride.StartLocation.Longitude;
+                }
+
+                _logger.LogInformation("Driver location for accept: ({Lat:F5}, {Lng:F5})", driverLat, driverLng);
 
                 // Estimate route from driver to pickup
                 string? approachPolyline;
@@ -534,8 +542,13 @@ namespace TurboTaxi.Infrastructure.Services
 
                 if (string.IsNullOrWhiteSpace(approachPolyline))
                 {
-                    _logger.LogError("Could not compute driver->pickup route for ride #{RideId}", rideId);
-                    throw new InvalidOperationException("Could not calculate route to pickup. Please try again.");
+                    _logger.LogWarning("Routing API failed for ride #{RideId}; using straight-line fallback", rideId);
+                    var fallback = PolylineDistanceHelper.CreateStraightRoute(
+                        driverLat, driverLng,
+                        ride.StartLocation.Latitude, ride.StartLocation.Longitude);
+                    approachPolyline = fallback.Polyline;
+                    approachDistanceKm = fallback.DistanceKm;
+                    approachDurationMin = fallback.DurationMinutes;
                 }
 
                 // Keep trip polyline (pickup -> destination) for user map overview
@@ -546,6 +559,13 @@ namespace TurboTaxi.Infrastructure.Services
                         ride.StartLocation.Latitude, ride.StartLocation.Longitude,
                         ride.EndLocation.Latitude, ride.EndLocation.Longitude,
                         ct);
+
+                    if (string.IsNullOrWhiteSpace(tripPolyline))
+                    {
+                        tripPolyline = PolylineDistanceHelper.CreateStraightRoute(
+                            ride.StartLocation.Latitude, ride.StartLocation.Longitude,
+                            ride.EndLocation.Latitude, ride.EndLocation.Longitude).Polyline;
+                    }
                 }
 
                 // Update ride
@@ -645,7 +665,16 @@ namespace TurboTaxi.Infrastructure.Services
                 {
                     RideId = ride.Id,
                     DriverId = request.DriverId,
-                    Status = ride.Status.ToString()
+                    Status = ride.Status.ToString(),
+                    EncodedPolyline = approachPolyline,
+                    TripEncodedPolyline = tripPolyline,
+                    PolylinePhase = "Approach",
+                    DistanceKm = approachDistanceKm,
+                    DurationMinutes = approachDurationMin,
+                    PickupLat = ride.StartLocation.Latitude,
+                    PickupLng = ride.StartLocation.Longitude,
+                    DestinationLat = ride.EndLocation.Latitude,
+                    DestinationLng = ride.EndLocation.Longitude
                 };
             }
             catch (DbUpdateException ex)

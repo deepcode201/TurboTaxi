@@ -31,6 +31,9 @@ namespace TurboTaxi.Models.Rides
     public class AcceptRideRequest
     {
         public int DriverId { get; set; }
+        /// <summary>Optional — used when Redis has no recent driver location.</summary>
+        public double? DriverLat { get; set; }
+        public double? DriverLng { get; set; }
     }
 
     public class RideAcceptedResponse
@@ -38,6 +41,15 @@ namespace TurboTaxi.Models.Rides
         public int RideId { get; set; }
         public int DriverId { get; set; }
         public string Status { get; set; } = null!;
+        public string? EncodedPolyline { get; set; }
+        public string? TripEncodedPolyline { get; set; }
+        public string? PolylinePhase { get; set; }
+        public double? DistanceKm { get; set; }
+        public int? DurationMinutes { get; set; }
+        public double PickupLat { get; set; }
+        public double PickupLng { get; set; }
+        public double DestinationLat { get; set; }
+        public double DestinationLng { get; set; }
     }
 
     public class StartRideRequest
