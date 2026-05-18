@@ -5,6 +5,7 @@ using TurboTaxi.Application.Interfaces;
 using TurboTaxi.Domain.Entities;
 using TurboTaxi.Domain.Enums;
 using TurboTaxi.Infrastructure.Data;
+using TurboTaxi.Models.PromoCodes;
 using TurboTaxi.Models.Rides;
 using TurboTaxi.Models.Routes;
 using TurboTaxi.Models.Trips;
@@ -19,6 +20,7 @@ namespace TurboTaxi.Infrastructure.Services
         private readonly IRideNotificationService _notification;
         private readonly IRouteEstimationService _routeEstimation;
         private readonly IFareCalculatorService _fareCalculator;
+        private readonly IPromoCodeService _promoCodeService;
         private readonly ILogger<RideService> _logger;
 
         public RideService(
@@ -27,6 +29,7 @@ namespace TurboTaxi.Infrastructure.Services
             IRideNotificationService notification,
             IRouteEstimationService routeEstimation,
             IFareCalculatorService fareCalculator,
+            IPromoCodeService promoCodeService,
             ILogger<RideService> logger)
         {
             _db = db;
@@ -34,6 +37,7 @@ namespace TurboTaxi.Infrastructure.Services
             _notification = notification;
             _routeEstimation = routeEstimation;
             _fareCalculator = fareCalculator;
+            _promoCodeService = promoCodeService;
             _logger = logger;
         }
 
@@ -44,6 +48,18 @@ namespace TurboTaxi.Infrastructure.Services
             return lat != 0 && lng != 0 &&
                    lat >= -90 && lat <= 90 &&
                    lng >= -180 && lng <= 180;
+        }
+
+        private static bool IsDriverAvailableForNewRide(string? status)
+        {
+            if (string.IsNullOrWhiteSpace(status))
+                return true;
+
+            if (Enum.TryParse<DriverStatus>(status, ignoreCase: true, out var parsed))
+                return parsed is DriverStatus.Free or DriverStatus.BusySoon;
+
+            return string.Equals(status, nameof(DriverStatus.Free), StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(status, nameof(DriverStatus.BusySoon), StringComparison.OrdinalIgnoreCase);
         }
 
         private static int NormalizePageNumber(int pageNumber)
@@ -138,27 +154,6 @@ namespace TurboTaxi.Infrastructure.Services
                 _logger.LogError(ex, "Route estimation failed");
                 return (null, null, null);
             }
-        }
-
-        private static decimal CalculateDiscountAmount(decimal originalFare, PromoCode promoCode)
-        {
-            if (originalFare <= 0)
-                return 0;
-
-            decimal discount;
-
-            if (promoCode.DiscountType == PromoDiscountType.Percentage)
-            {
-                discount = originalFare * promoCode.DiscountValue / 100m;
-                if (promoCode.MaxDiscountAmount.HasValue && discount > promoCode.MaxDiscountAmount)
-                    discount = promoCode.MaxDiscountAmount.Value;
-            }
-            else
-            {
-                discount = promoCode.DiscountValue;
-            }
-
-            return Math.Clamp(discount, 0, originalFare);
         }
 
         #endregion
@@ -280,9 +275,9 @@ namespace TurboTaxi.Infrastructure.Services
                             continue;
                         }
 
-                        if (status != "Free")
+                        if (!IsDriverAvailableForNewRide(status))
                         {
-                            _logger.LogInformation($"   ⏸️ Driver #{did} not free (status='{status}')");
+                            _logger.LogInformation($"   ⏸️ Driver #{did} not available (status='{status}')");
                             continue;
                         }
 
@@ -313,10 +308,6 @@ namespace TurboTaxi.Infrastructure.Services
                     }
                 }
 
-                // Notify drivers
-                _logger.LogInformation($"?? Notifying {candidateIds.Count} available drivers");
-
-                // Calculate estimated fare for display to driver and user
                 decimal estimatedFare = await _fareCalculator.CalculateEstimatedFareAsync(
                     request.VehicleType.ToString(),
                     distanceKm,
@@ -326,6 +317,30 @@ namespace TurboTaxi.Infrastructure.Services
 
                 ride.EstimatedFare = estimatedFare;
                 await _db.SaveChangesAsync(ct);
+
+                var fareForUser = estimatedFare;
+                var promoPreview = new PromoFareResult
+                {
+                    Applied = false,
+                    OriginalFare = estimatedFare,
+                    FinalFare = estimatedFare
+                };
+
+                try
+                {
+                    promoPreview = await _promoCodeService.ApplyActivePromoAsync(
+                        request.UserId,
+                        estimatedFare,
+                        consumeUsage: false,
+                        ct);
+                    fareForUser = promoPreview.Applied ? promoPreview.FinalFare : estimatedFare;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Promo preview failed for ride #{RideId}; notifying drivers anyway", ride.Id);
+                }
+
+                _logger.LogInformation($"?? Notifying {candidateIds.Count} available drivers");
 
                 if (candidateIds.Count > 0)
                 {
@@ -340,17 +355,25 @@ namespace TurboTaxi.Infrastructure.Services
                             DestinationLat = request.DestinationLat ?? 0,
                             DestinationLng = request.DestinationLng ?? 0,
                             EncodedPolyline = polyline,
-                            EstimatedFare = estimatedFare,
+                            EstimatedFare = fareForUser,
                             DistanceKm = distanceKm ?? 0,
                             DurationMinutes = durationMin ?? 0
                         };
                         await _notification.NotifyNearestDriversAsync(candidateIds, driverPayload);
-                        _logger.LogInformation($"? Notified {candidateIds.Count} drivers with ride #{ride.Id} (fare: {estimatedFare:F2} AZN, distance: {distanceKm:F2}km, duration: {durationMin}min)");
+                        _logger.LogInformation(
+                            "? Notified {Count} drivers with ride #{RideId} (fare: {Fare:F2} AZN)",
+                            candidateIds.Count, ride.Id, fareForUser);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Failed to notify drivers");
+                        _logger.LogError(ex, "Failed to notify drivers for ride #{RideId}", ride.Id);
                     }
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "No drivers matched for ride #{RideId} (vehicle={VehicleType}, geo count={GeoCount})",
+                        ride.Id, request.VehicleType, nearbyDrivers.Length);
                 }
 
                 // Notify user
@@ -369,7 +392,11 @@ namespace TurboTaxi.Infrastructure.Services
                         PolylinePhase = "Trip",
                         DistanceKm = distanceKm,
                         DurationMinutes = durationMin,
-                        EstimatedFare = estimatedFare,
+                        EstimatedFare = fareForUser,
+                        OriginalEstimatedFare = estimatedFare,
+                        DiscountAmount = promoPreview.DiscountAmount,
+                        PromoApplied = promoPreview.Applied,
+                        PromoCode = promoPreview.PromoCode,
                         Message = "Searching for nearby drivers..."
                     }); 
                 }
@@ -385,7 +412,12 @@ namespace TurboTaxi.Infrastructure.Services
                     RideId = ride.Id,
                     Status = ride.Status.ToString(),
                     CandidateDriverIds = candidateIds,
-                    EstimatedFare = estimatedFare,
+                    EstimatedFare = fareForUser,
+                    OriginalEstimatedFare = estimatedFare,
+                    DiscountAmount = promoPreview.Applied ? promoPreview.DiscountAmount : null,
+                    PromoApplied = promoPreview.Applied,
+                    PromoCode = promoPreview.PromoCode,
+                    PromoRemainingRides = promoPreview.RemainingRideCount,
                     DistanceKm = distanceKm,
                     DurationMinutes = durationMin
                 };
@@ -767,16 +799,28 @@ namespace TurboTaxi.Infrastructure.Services
                 throw new InvalidOperationException($"Driver mismatch");
             }
 
-            // Update ride - use trip estimated fare as final price
-            var finalFare = await ResolveFinalFareAsync(ride, ct);
-            ride.EstimatedFare ??= finalFare;
+            // Final fare + active promo (consumes one ride from ExpireRideCount)
+            var originalFare = await ResolveFinalFareAsync(ride, ct);
+            var promo = await _promoCodeService.ApplyActivePromoAsync(
+                ride.UserId,
+                originalFare,
+                consumeUsage: true,
+                ct);
+
+            var chargedFare = promo.Applied ? promo.FinalFare : originalFare;
+
+            ride.EstimatedFare ??= originalFare;
             ride.Status = RideStatus.Completed;
             ride.CompletedTime = DateTime.UtcNow;
-            ride.ActualFare = finalFare;
+            ride.ActualFare = chargedFare;
+            ride.DiscountAmount = promo.Applied ? promo.DiscountAmount : null;
+            ride.PromoCodeId = promo.Applied ? promo.PromoCodeId : null;
 
             await _db.SaveChangesAsync(ct);
 
-            _logger.LogInformation($"✓ Ride #{rideId} completed - Fare: {finalFare:F2} AZN");
+            _logger.LogInformation(
+                "✓ Ride #{RideId} completed - Original: {Original:F2} AZN, Charged: {Charged:F2} AZN, Promo: {Promo}",
+                rideId, originalFare, chargedFare, promo.Applied ? promo.PromoCode : "none");
 
             // Update driver status in Redis
             try
@@ -816,10 +860,10 @@ namespace TurboTaxi.Infrastructure.Services
                 {
                     RideId = ride.Id,
                     Status = ride.Status.ToString(),
-                    FinalPrice = finalFare,
+                    FinalPrice = chargedFare,
                     CompletedAtUtc = ride.CompletedTime.Value,
                     ClearMap = true,
-                    Message = $"✓ Trip completed! Total: {finalFare:F2} AZN. Thank you!",
+                    Message = $"✓ Trip completed! Total: {chargedFare:F2} AZN. Thank you!",
                     UserType = "user"
                 };
                 await _notification.NotifyUserAsync(ride.UserId, userPayload);
@@ -837,10 +881,10 @@ namespace TurboTaxi.Infrastructure.Services
                 {
                     RideId = ride.Id,
                     Status = ride.Status.ToString(),
-                    FinalPrice = finalFare,
+                    FinalPrice = chargedFare,
                     CompletedAtUtc = ride.CompletedTime.Value,
                     ClearMap = true,
-                    Message = $"✓ Trip completed! You earned {finalFare:F2} AZN",
+                    Message = $"✓ Trip completed! You earned {chargedFare:F2} AZN",
                     UserType = "driver"
                 };
                 await _notification.NotifyDriverAsync(request.DriverId, driverPayload);
@@ -854,7 +898,12 @@ namespace TurboTaxi.Infrastructure.Services
             {
                 RideId = ride.Id,
                 Status = ride.Status.ToString(),
-                FinalPrice = finalFare,
+                FinalPrice = chargedFare,
+                OriginalFare = originalFare,
+                DiscountAmount = promo.Applied ? promo.DiscountAmount : null,
+                PromoApplied = promo.Applied,
+                PromoCode = promo.PromoCode,
+                PromoRemainingRides = promo.RemainingRideCount,
                 FinishedAtUtc = ride.CompletedTime.Value
             };
         }
@@ -1222,13 +1271,6 @@ namespace TurboTaxi.Infrastructure.Services
                 .Take(pageSize)
                 .ToListAsync(ct);
 
-            // Get active promo codes for the user
-            var activePromoCode = await _db.UserPromoCodes
-                .AsNoTracking()
-                .Include(up => up.PromoCode)
-                .Where(up => up.UserId == userId && up.PromoCode.IsActive)
-                .FirstOrDefaultAsync(ct);
-
             var items = rides.Select(r => new UserTripHistoryItem
             {
                 RideId = r.Id,
@@ -1242,9 +1284,11 @@ namespace TurboTaxi.Infrastructure.Services
                 VehicleModel = r.Driver?.Vehicle?.Model,
                 PickupAddress = FormatAddress(r.StartLocation),
                 DestinationAddress = FormatAddress(r.EndLocation),
-                Fare = r.ActualFare ?? r.EstimatedFare ?? 0,
-                DiscountAmount = activePromoCode != null ? CalculateDiscountAmount(r.ActualFare ?? r.EstimatedFare ?? 0, activePromoCode.PromoCode) : null,
-                FinalFare = activePromoCode != null ? Math.Max(0, (r.ActualFare ?? r.EstimatedFare ?? 0) - CalculateDiscountAmount(r.ActualFare ?? r.EstimatedFare ?? 0, activePromoCode.PromoCode)) : null,
+                Fare = r.EstimatedFare ?? r.ActualFare ?? 0,
+                DiscountAmount = r.DiscountAmount,
+                FinalFare = r.ActualFare ?? (r.DiscountAmount.HasValue
+                    ? Math.Max(0, (r.EstimatedFare ?? 0) - r.DiscountAmount.Value)
+                    : r.EstimatedFare),
                 RideDateUtc = ResolveRideDateUtc(r),
                 Status = r.Status.ToString()
             }).ToList();

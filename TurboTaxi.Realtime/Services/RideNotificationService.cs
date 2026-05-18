@@ -106,6 +106,10 @@ namespace TurboTaxi.Realtime.Services
                     var groupName = $"driver:{driverId}";
                     await _messageQueueService.EnqueueAndSendAsync(groupName, "NewRideRequest", $"ride_{rideId}", payload);
                 }
+
+                // Fallback: drivers auto-join "all_drivers" on connect; many apps skip SubscribeDriver(driverId)
+                await _messageQueueService.EnqueueAndSendAsync("all_drivers", "NewRideRequest", $"ride_{rideId}", payload);
+                _logger.LogInformation("[SignalR] New ride {RideId} also broadcast to all_drivers", rideId);
             }
             catch (Exception ex)
             {

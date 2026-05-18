@@ -36,4 +36,17 @@ namespace TurboTaxi.Models.PromoCodes
         public decimal DiscountAmount { get; set; }
         public decimal FinalFare { get; set; }
     }
+
+    /// <summary>Result of applying (or previewing) the user's active promo on a fare.</summary>
+    public class PromoFareResult
+    {
+        public bool Applied { get; set; }
+        public int? PromoCodeId { get; set; }
+        public string? PromoCode { get; set; }
+        public decimal OriginalFare { get; set; }
+        public decimal DiscountAmount { get; set; }
+        public decimal FinalFare { get; set; }
+        /// <summary>Remaining rides for this promo after apply (null if not applied).</summary>
+        public int? RemainingRideCount { get; set; }
+    }
 }

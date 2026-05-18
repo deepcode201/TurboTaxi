@@ -77,7 +77,112 @@ namespace TurboTaxi.Infrastructure.Services
             if (userPromoCode == null)
                 throw new InvalidOperationException("Promo code is not assigned to this user.");
 
+            await ValidatePromoCanBeUsedAsync(userPromoCode, userPromoCode.PromoCode, ct);
+
+            var originalFare = request.OriginalFare;
+            if (originalFare < 0)
+                throw new InvalidOperationException("Original fare must be zero or greater.");
+
+            var discountAmount = CalculateDiscount(originalFare, userPromoCode.PromoCode);
+            var finalFare = Math.Max(0, originalFare - discountAmount);
+
+            await ConsumePromoUsageAsync(userPromoCode, userPromoCode.PromoCode, ct);
+
+            _logger.LogInformation("Promo code {PromoCodeId} applied for user {UserId}", userPromoCode.PromoCode.Id, request.UserId);
+
+            return new ApplyPromoCodeResponse
+            {
+                UserId = request.UserId,
+                PromoCodeId = userPromoCode.PromoCode.Id,
+                OriginalFare = originalFare,
+                DiscountAmount = discountAmount,
+                FinalFare = finalFare
+            };
+        }
+
+        public async Task<PromoFareResult> ApplyActivePromoAsync(
+            int userId,
+            decimal originalFare,
+            bool consumeUsage,
+            CancellationToken ct = default)
+        {
+            if (originalFare <= 0)
+            {
+                return new PromoFareResult
+                {
+                    Applied = false,
+                    OriginalFare = originalFare,
+                    FinalFare = originalFare
+                };
+            }
+
+            var userPromoCode = await FindActiveUserPromoAsync(userId, ct);
+            if (userPromoCode == null)
+            {
+                return new PromoFareResult
+                {
+                    Applied = false,
+                    OriginalFare = originalFare,
+                    FinalFare = originalFare
+                };
+            }
+
             var promoCode = userPromoCode.PromoCode;
+            var discountAmount = CalculateDiscount(originalFare, promoCode);
+            var finalFare = Math.Max(0, originalFare - discountAmount);
+
+            int? remaining = null;
+            if (consumeUsage)
+            {
+                await ConsumePromoUsageAsync(userPromoCode, promoCode, ct);
+                remaining = GetRemainingRideCount(userPromoCode, promoCode);
+                _logger.LogInformation(
+                    "Active promo {PromoCodeId} consumed for user {UserId}. Remaining rides: {Remaining}",
+                    promoCode.Id, userId, remaining);
+            }
+            else
+            {
+                remaining = GetRemainingRideCount(userPromoCode, promoCode);
+            }
+
+            return new PromoFareResult
+            {
+                Applied = true,
+                PromoCodeId = promoCode.Id,
+                PromoCode = promoCode.Code,
+                OriginalFare = originalFare,
+                DiscountAmount = discountAmount,
+                FinalFare = finalFare,
+                RemainingRideCount = remaining
+            };
+        }
+
+        private async Task<UserPromoCode?> FindActiveUserPromoAsync(int userId, CancellationToken ct)
+        {
+            var candidates = await _db.UserPromoCodes
+                .Include(up => up.PromoCode)
+                .Where(up => up.UserId == userId && up.PromoCode.IsActive)
+                .OrderByDescending(up => up.CreatedTime)
+                .ToListAsync(ct);
+
+            foreach (var userPromo in candidates)
+            {
+                try
+                {
+                    await ValidatePromoCanBeUsedAsync(userPromo, userPromo.PromoCode, ct);
+                    return userPromo;
+                }
+                catch (InvalidOperationException)
+                {
+                    // skip invalid / exhausted promos
+                }
+            }
+
+            return null;
+        }
+
+        private async Task ValidatePromoCanBeUsedAsync(UserPromoCode userPromoCode, PromoCode promoCode, CancellationToken ct)
+        {
             if (!promoCode.IsActive)
                 throw new InvalidOperationException("Promo code is not active.");
 
@@ -100,29 +205,31 @@ namespace TurboTaxi.Infrastructure.Services
                 if (totalUsage >= promoCode.MaxUsageCount)
                     throw new InvalidOperationException("Promo code usage limit reached.");
             }
+        }
 
-            var originalFare = request.OriginalFare;
-            if (originalFare < 0)
-                throw new InvalidOperationException("Original fare must be zero or greater.");
-
-            var discountAmount = CalculateDiscount(originalFare, promoCode);
-            var finalFare = Math.Max(0, originalFare - discountAmount);
-
+        private async Task ConsumePromoUsageAsync(UserPromoCode userPromoCode, PromoCode promoCode, CancellationToken ct)
+        {
             userPromoCode.UsedCount += 1;
-            userPromoCode.LastUsedTime = now;
+            userPromoCode.LastUsedTime = DateTime.UtcNow;
+
+            if (promoCode.MaxUsagePerUser.HasValue &&
+                userPromoCode.UsedCount >= promoCode.MaxUsagePerUser)
+            {
+                promoCode.IsActive = false;
+                _logger.LogInformation(
+                    "Promo code {PromoCodeId} expired for user {UserId} (ride limit reached)",
+                    promoCode.Id, userPromoCode.UserId);
+            }
 
             await _db.SaveChangesAsync(ct);
+        }
 
-            _logger.LogInformation("Promo code {PromoCodeId} applied for user {UserId}", promoCode.Id, request.UserId);
+        private static int? GetRemainingRideCount(UserPromoCode userPromoCode, PromoCode promoCode)
+        {
+            if (!promoCode.MaxUsagePerUser.HasValue)
+                return null;
 
-            return new ApplyPromoCodeResponse
-            {
-                UserId = request.UserId,
-                PromoCodeId = promoCode.Id,
-                OriginalFare = originalFare,
-                DiscountAmount = discountAmount,
-                FinalFare = finalFare
-            };
+            return Math.Max(0, promoCode.MaxUsagePerUser.Value - userPromoCode.UsedCount);
         }
 
         public async Task DeleteAsync(int promoCodeId, CancellationToken ct = default)

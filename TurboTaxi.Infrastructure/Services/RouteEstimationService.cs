@@ -12,17 +12,20 @@ namespace TurboTaxi.Infrastructure.Services
         private readonly IConfiguration _config;
         private readonly HttpClient _http;
         private readonly IFareCalculatorService _fareCalculator;
+        private readonly IPromoCodeService _promoCodeService;
         private readonly ILogger<RouteEstimationService> _logger;
 
         public RouteEstimationService(
             IConfiguration config,
             HttpClient http,
             IFareCalculatorService fareCalculator,
+            IPromoCodeService promoCodeService,
             ILogger<RouteEstimationService> logger)
         {
             _config = config;
             _http = http;
             _fareCalculator = fareCalculator;
+            _promoCodeService = promoCodeService;
             _logger = logger;
         }
 
@@ -325,6 +328,25 @@ namespace TurboTaxi.Infrastructure.Services
                 Final = (double)originalFare,
                 Currency = "AZN"
             };
+
+            if (request.UserId.HasValue && request.UserId.Value > 0)
+            {
+                var promo = await _promoCodeService.ApplyActivePromoAsync(
+                    request.UserId.Value,
+                    originalFare,
+                    consumeUsage: false);
+
+                if (promo.Applied)
+                {
+                    response.Data.Price = new RoutePriceDto
+                    {
+                        Original = (double)promo.OriginalFare,
+                        Discount = (double)promo.DiscountAmount,
+                        Final = (double)promo.FinalFare,
+                        Currency = "AZN"
+                    };
+                }
+            }
 
             _logger.LogInformation(
                 "Route estimate price: {Fare:F2} AZN ({VehicleType}, {DistanceKm} km, {DurationMin} min)",
