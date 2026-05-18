@@ -324,6 +324,9 @@ namespace TurboTaxi.Infrastructure.Services
                     DateTime.UtcNow,
                     "Baku");
 
+                ride.EstimatedFare = estimatedFare;
+                await _db.SaveChangesAsync(ct);
+
                 if (candidateIds.Count > 0)
                 {
                     try
@@ -764,14 +767,16 @@ namespace TurboTaxi.Infrastructure.Services
                 throw new InvalidOperationException($"Driver mismatch");
             }
 
-            // Update ride - Use EstimatedFare as final price
+            // Update ride - use trip estimated fare as final price
+            var finalFare = await ResolveFinalFareAsync(ride, ct);
+            ride.EstimatedFare ??= finalFare;
             ride.Status = RideStatus.Completed;
             ride.CompletedTime = DateTime.UtcNow;
-            ride.ActualFare = ride.EstimatedFare ?? 0;  // 🔧 Use estimated fare, not driver input
+            ride.ActualFare = finalFare;
 
             await _db.SaveChangesAsync(ct);
 
-            _logger.LogInformation($"✓ Ride #{rideId} completed - Fare: {ride.ActualFare:F2} AZN (estimated at creation)");
+            _logger.LogInformation($"✓ Ride #{rideId} completed - Fare: {finalFare:F2} AZN");
 
             // Update driver status in Redis
             try
@@ -811,10 +816,10 @@ namespace TurboTaxi.Infrastructure.Services
                 {
                     RideId = ride.Id,
                     Status = ride.Status.ToString(),
-                    FinalPrice = ride.ActualFare.Value,
+                    FinalPrice = finalFare,
                     CompletedAtUtc = ride.CompletedTime.Value,
                     ClearMap = true,
-                    Message = $"✓ Trip completed! Total: {ride.ActualFare:F2} AZN. Thank you!",
+                    Message = $"✓ Trip completed! Total: {finalFare:F2} AZN. Thank you!",
                     UserType = "user"
                 };
                 await _notification.NotifyUserAsync(ride.UserId, userPayload);
@@ -832,10 +837,10 @@ namespace TurboTaxi.Infrastructure.Services
                 {
                     RideId = ride.Id,
                     Status = ride.Status.ToString(),
-                    FinalPrice = ride.ActualFare.Value,
+                    FinalPrice = finalFare,
                     CompletedAtUtc = ride.CompletedTime.Value,
                     ClearMap = true,
-                    Message = $"✓ Trip completed! You earned {ride.ActualFare:F2} AZN",
+                    Message = $"✓ Trip completed! You earned {finalFare:F2} AZN",
                     UserType = "driver"
                 };
                 await _notification.NotifyDriverAsync(request.DriverId, driverPayload);
@@ -849,9 +854,53 @@ namespace TurboTaxi.Infrastructure.Services
             {
                 RideId = ride.Id,
                 Status = ride.Status.ToString(),
-                FinalPrice = ride.ActualFare.Value,
+                FinalPrice = finalFare,
                 FinishedAtUtc = ride.CompletedTime.Value
             };
+        }
+
+        /// <summary>
+        /// Returns persisted trip fare, or recalculates from pickup→destination when missing (legacy rides).
+        /// </summary>
+        private async Task<decimal> ResolveFinalFareAsync(Ride ride, CancellationToken ct)
+        {
+            if (ride.EstimatedFare.HasValue && ride.EstimatedFare.Value > 0)
+                return ride.EstimatedFare.Value;
+
+            _logger.LogWarning(
+                "Ride #{RideId} has no EstimatedFare — recalculating from trip route",
+                ride.Id);
+
+            var rideWithLocations = await _db.Rides
+                .AsNoTracking()
+                .Include(r => r.StartLocation)
+                .Include(r => r.EndLocation)
+                .FirstOrDefaultAsync(r => r.Id == ride.Id, ct);
+
+            double? distanceKm = ride.EstimatedDistanceKm;
+            int? durationMin = ride.EstimatedDurationMinutes;
+
+            if (rideWithLocations?.StartLocation != null && rideWithLocations.EndLocation != null)
+            {
+                var (_, dist, dur) = await EstimateRouteAsync(
+                    rideWithLocations.StartLocation.Latitude,
+                    rideWithLocations.StartLocation.Longitude,
+                    rideWithLocations.EndLocation.Latitude,
+                    rideWithLocations.EndLocation.Longitude,
+                    ct);
+
+                if (dist.HasValue)
+                    distanceKm = dist;
+                if (dur.HasValue)
+                    durationMin = dur;
+            }
+
+            return await _fareCalculator.CalculateEstimatedFareAsync(
+                ride.RequestedVehicleType.ToString(),
+                distanceKm,
+                durationMin,
+                ride.PickUpTime ?? ride.RequestedTime ?? DateTime.UtcNow,
+                "Baku");
         }
 
         #endregion
