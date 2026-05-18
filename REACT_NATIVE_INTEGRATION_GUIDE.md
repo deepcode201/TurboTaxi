@@ -555,7 +555,8 @@ const PromoCodeScreen = () => {
 
 | Method | Endpoint | Açıklama |
 |--------|----------|----------|
-| POST | `/api/rides/{rideId}/accept` | Sipariş qebul et |
+| POST | `/api/rides/{rideId}/accept` | Sifarişi qəbul et (düzgün endpoint) |
+| Hub | `AcceptRide(rideId, driverId, driverLat?, driverLng?)` | SignalR ilə qəbul (alternativ) |
 | POST | `/api/rides/{rideId}/start` | Seyahate başla |
 | POST | `/api/rides/{rideId}/finish` | Seyahati bitir |
 | GET | `/api/trip-history/driver/{driverId}` | Driver'ın seyahat geçmişi |
@@ -563,6 +564,86 @@ const PromoCodeScreen = () => {
 ---
 
 ## 7️⃣ **SignalR Events Özeti**
+
+### Sürücü — Sifarişi qəbul et (VACİB)
+
+Skrinşotdakı **"Konum tələb olunur"** xətası **React Native tərəfdədir** — GPS alınmadan API çağırılmır, spinner fırlanır, sifariş qəbul olunmur.
+
+**Qəbul etməzdən əvvəl GPS-i məcburi bloklamayın.** Backend artıq konum olmadan da qəbul edir (Redis / body / pickup fallback).
+
+```javascript
+// Pending sifarişi saxlayın (NewRideRequest-dən)
+let pendingRide = null;
+
+connection.on('NewRideRequest', (requestId, payload) => {
+  pendingRide = {
+    rideId: payload.rideId ?? payload.RideId,
+    pickupLat: payload.pickupLat ?? payload.PickupLat,
+    pickupLng: payload.pickupLng ?? payload.PickupLng,
+    estimatedFare: payload.estimatedFare ?? payload.EstimatedFare,
+  };
+});
+
+const acceptRide = async () => {
+  if (!pendingRide?.rideId) return;
+
+  let lat = lastKnownLat;
+  let lng = lastKnownLng;
+
+  // GPS cəhdi (5 san limit) — uğursuz olsa dayanmayın
+  try {
+    const pos = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+      maximumAge: 60000,
+      timeout: 5000,
+    });
+    lat = pos.coords.latitude;
+    lng = pos.coords.longitude;
+  } catch {
+    // Son məlum və ya pickup (sürücü artıq yaxınlıqda match olunub)
+    lat = lat ?? pendingRide.pickupLat;
+    lng = lng ?? pendingRide.pickupLng;
+  }
+
+  // YALNIZ həqiqətən koordinat yoxdursa alert göstərin
+  if (!lat || !lng) {
+    Alert.alert('Konum tələb olunur', 'Zəhmət olmasa GPS-i aktiv edin və ya yenidən cəhd edin.');
+    return;
+  }
+
+  setLoading(true);
+  try {
+  // Variant A — REST (tövsiyə olunur)
+    const res = await fetch(`${API_URL}/api/rides/${pendingRide.rideId}/accept`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        driverId: currentDriverId,
+        driverLat: lat,
+        driverLng: lng,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Accept failed');
+
+  // Variant B — SignalR
+  // const data = await connection.invoke('AcceptRide', pendingRide.rideId, currentDriverId, lat, lng);
+
+    pendingRide = null;
+    navigation.navigate('ActiveRide', { ride: data });
+  } catch (e) {
+    Alert.alert('Xəta', e.message);
+  } finally {
+    setLoading(false);
+  }
+};
+```
+
+**Səhv:** `OnRideAccepted` köhnə ad idi — indi həqiqi qəbul edir, amma **`AcceptRide` və ya REST** istifadə edin.
+
+**Səhv endpoint:** `/api/drivers/accept/...` — belə route yoxdur. Düzgün: `POST /api/rides/{rideId}/accept`.
+
+---
 
 ### Driver'a Gelen Events
 

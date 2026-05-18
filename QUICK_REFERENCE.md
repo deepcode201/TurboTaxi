@@ -110,7 +110,8 @@ Response:
 
 ### Driver Accepts (gets polyline)
 ```bash
-POST /api/drivers/accept/123
+POST /api/rides/123/accept
+Body: { "driverId": 5, "driverLat": 40.41, "driverLng": 49.87 }
 
 WebSocket Response:
 {

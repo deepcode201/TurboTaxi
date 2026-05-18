@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TurboTaxi.Application.Interfaces;
 using TurboTaxi.Models.Realtime;
+using TurboTaxi.Models.Rides;
 
 namespace TurboTaxi.Realtime.Hubs
 {
@@ -15,11 +17,16 @@ namespace TurboTaxi.Realtime.Hubs
     public class DriverHub : Hub<IDriverClient>
     {
         private readonly IDriverLocationService _driverLocationService;
+        private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<DriverHub> _logger;
 
-        public DriverHub(IDriverLocationService driverLocationService, ILogger<DriverHub> logger)
+        public DriverHub(
+            IDriverLocationService driverLocationService,
+            IServiceProvider serviceProvider,
+            ILogger<DriverHub> logger)
         {
             _driverLocationService = driverLocationService;
+            _serviceProvider = serviceProvider;
             _logger = logger;
         }
 
@@ -104,22 +111,57 @@ namespace TurboTaxi.Realtime.Hubs
         }
 
         /// <summary>
-        /// Explicit driver acceptance of a ride - ensure driver is subscribed
+        /// Accept a pending ride (same as POST /api/rides/{rideId}/accept).
+        /// Location is optional — backend uses Redis, request coords, or pickup fallback.
         /// </summary>
-        public async Task OnRideAccepted(int driverId, int rideId)
+        public async Task<RideAcceptedResponse> AcceptRide(
+            int rideId,
+            int driverId,
+            double? driverLat = null,
+            double? driverLng = null)
         {
-            _logger.LogInformation($"[SignalR] Driver #{driverId} accepted ride #{rideId}");
+            _logger.LogInformation(
+                "[SignalR] AcceptRide: rideId={RideId}, driverId={DriverId}, lat={Lat}, lng={Lng}",
+                rideId, driverId, driverLat, driverLng);
+
+            using var scope = _serviceProvider.CreateScope();
+            var rideService = scope.ServiceProvider.GetRequiredService<IRideService>();
 
             try
             {
+                var result = await rideService.AcceptRideAsync(
+                    rideId,
+                    new AcceptRideRequest
+                    {
+                        DriverId = driverId,
+                        DriverLat = driverLat,
+                        DriverLng = driverLng
+                    },
+                    Context.ConnectionAborted);
+
                 var driverGroupName = $"driver:{driverId}";
                 await Groups.AddToGroupAsync(Context.ConnectionId, driverGroupName);
-                _logger.LogInformation($"[SignalR] Driver #{driverId} subscribed to group '{driverGroupName}' after accepting ride");
+
+                return result;
             }
-            catch (Exception ex)
+            catch (KeyNotFoundException ex)
             {
-                _logger.LogError(ex, $"[SignalR] Failed to subscribe driver #{driverId} after ride acceptance");
+                throw new HubException(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new HubException(ex.Message);
             }
         }
+
+        /// <summary>
+        /// Legacy hub method name — now performs real accept (not subscribe-only).
+        /// </summary>
+        public Task<RideAcceptedResponse> OnRideAccepted(
+            int driverId,
+            int rideId,
+            double? driverLat = null,
+            double? driverLng = null)
+            => AcceptRide(rideId, driverId, driverLat, driverLng);
     }
 }
