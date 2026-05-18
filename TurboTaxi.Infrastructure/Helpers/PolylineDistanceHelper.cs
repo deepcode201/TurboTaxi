@@ -134,5 +134,46 @@ namespace TurboTaxi.Infrastructure.Helpers
         }
 
         private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
+
+        /// <summary>Encode lat/lng points to Google polyline format.</summary>
+        public static string EncodePolyline(IEnumerable<(double Lat, double Lng)> points)
+        {
+            var encoded = new System.Text.StringBuilder();
+            int lastLat = 0, lastLng = 0;
+
+            foreach (var (lat, lng) in points)
+            {
+                var latE5 = (int)Math.Round(lat * 1E5);
+                var lngE5 = (int)Math.Round(lng * 1E5);
+                EncodeValue(latE5 - lastLat, encoded);
+                EncodeValue(lngE5 - lastLng, encoded);
+                lastLat = latE5;
+                lastLng = lngE5;
+            }
+
+            return encoded.ToString();
+        }
+
+        private static void EncodeValue(int value, System.Text.StringBuilder result)
+        {
+            var v = value < 0 ? ~(value << 1) : value << 1;
+            while (v >= 0x20)
+            {
+                result.Append((char)((0x20 | (v & 0x1f)) + 63));
+                v >>= 5;
+            }
+            result.Append((char)(v + 63));
+        }
+
+        /// <summary>Fallback route when Google/OSRM is unavailable (straight line).</summary>
+        public static (string Polyline, double DistanceKm, int DurationMinutes) CreateStraightRoute(
+            double originLat, double originLng, double destLat, double destLng)
+        {
+            var distanceMeters = HaversineDistance(originLat, originLng, destLat, destLng);
+            var distanceKm = Math.Round(distanceMeters / 1000.0, 2);
+            var durationMinutes = (int)Math.Max(1, Math.Ceiling(distanceMeters / 500.0)); // ~30 km/h avg in city
+            var polyline = EncodePolyline(new[] { (originLat, originLng), (destLat, destLng) });
+            return (polyline, distanceKm, durationMinutes);
+        }
     }
 }

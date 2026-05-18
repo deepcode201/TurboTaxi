@@ -33,6 +33,21 @@ namespace TurboTaxi.Realtime.Services
             return 0;
         }
 
+        private static string ExtractStatus(object payload, string fallback = "notification")
+        {
+            try
+            {
+                var type = payload.GetType();
+                var prop = type.GetProperty("Status") ?? type.GetProperty("status");
+                var val = prop?.GetValue(payload)?.ToString();
+                if (!string.IsNullOrWhiteSpace(val))
+                    return val;
+            }
+            catch { }
+
+            return fallback;
+        }
+
         /// <summary>
         /// Notify a specific driver about ride status update.
         /// </summary>
@@ -50,7 +65,8 @@ namespace TurboTaxi.Realtime.Services
                 var groupName = $"driver:{driverId}";
 
                 _logger.LogInformation($"[SignalR] Notifying driver {driverId} (group: {groupName}) - RideId: {rideId}");
-                await _messageQueueService.EnqueueAndSendAsync(groupName, "RideStatusUpdated", rideId, "notification", payload);
+                var status = ExtractStatus(payload);
+                await _messageQueueService.EnqueueAndSendAsync(groupName, "RideStatusUpdated", rideId, status, payload);
             }
             catch (Exception ex)
             {
