@@ -12,12 +12,14 @@ namespace TurboTaxi.Application.Interfaces
         /// <param name="distanceKm">Distance in kilometers</param>
         /// <param name="durationMinutes">Estimated duration in minutes</param>
         /// <param name="rideStartTime">Optional ride start time for night surcharge calculation</param>
+        /// <param name="city">City for tariff lookup (default: Baku)</param>
         /// <returns>Estimated fare amount</returns>
         Task<decimal> CalculateEstimatedFareAsync(
             string vehicleType,
             double? distanceKm,
             int? durationMinutes,
-            DateTime? rideStartTime = null);
+            DateTime? rideStartTime = null,
+            string? city = "Baku");
 
         /// <summary>
         /// Calculate final fare after ride completion (with actual distance/duration).
@@ -26,11 +28,13 @@ namespace TurboTaxi.Application.Interfaces
         /// <param name="actualDistanceKm">Actual distance traveled in kilometers</param>
         /// <param name="actualDurationMinutes">Actual ride duration in minutes</param>
         /// <param name="rideStartTime">Ride start time for night surcharge calculation</param>
+        /// <param name="city">City for tariff lookup (default: Baku)</param>
         /// <returns>Final fare amount</returns>
         Task<decimal> CalculateFinalFareAsync(
             string vehicleType,
             double actualDistanceKm,
             int actualDurationMinutes,
-            DateTime rideStartTime);
+            DateTime rideStartTime,
+            string? city = "Baku");
     }
 }

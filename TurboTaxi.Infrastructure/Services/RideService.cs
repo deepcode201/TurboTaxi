@@ -7,6 +7,7 @@ using TurboTaxi.Domain.Enums;
 using TurboTaxi.Infrastructure.Data;
 using TurboTaxi.Models.Rides;
 using TurboTaxi.Models.Routes;
+using TurboTaxi.Models.Trips;
 using TurboTaxi.Realtime.Redis;
 
 namespace TurboTaxi.Infrastructure.Services
@@ -43,6 +44,42 @@ namespace TurboTaxi.Infrastructure.Services
             return lat != 0 && lng != 0 &&
                    lat >= -90 && lat <= 90 &&
                    lng >= -180 && lng <= 180;
+        }
+
+        private static int NormalizePageNumber(int pageNumber)
+        {
+            return pageNumber < 1 ? 1 : pageNumber;
+        }
+
+        private static int NormalizePageSize(int pageSize)
+        {
+            if (pageSize < 1)
+                return 20;
+
+            return pageSize > 100 ? 100 : pageSize;
+        }
+
+        private static string? FormatAddress(Location location)
+        {
+            var parts = new[] { location.Name, location.AddressLine, location.City, location.Country }
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .ToArray();
+
+            if (parts.Length > 0)
+            {
+                return string.Join(", ", parts);
+            }
+
+            return $"{location.Latitude:F6}, {location.Longitude:F6}";
+        }
+
+        private static DateTime? ResolveRideDateUtc(Ride ride)
+        {
+            return ride.CompletedTime
+                   ?? ride.CanceledTime
+                   ?? ride.PickUpTime
+                   ?? ride.AcceptedTime
+                   ?? ride.RequestedTime;
         }
 
         private async Task<(double lat, double lng)> GetDriverLocationAsync(int driverId)
@@ -88,14 +125,66 @@ namespace TurboTaxi.Infrastructure.Services
                     return (response.Data.EncodedPolyline, response.Data.DistanceKm, response.Data.DurationMinutes);
                 }
 
-                _logger.LogWarning("?? Route estimation returned no valid data");
-                return (null, null, null);
+                _logger.LogWarning("?? Route estimation returned no valid data, using fallback calculation");
+
+                // Fallback: Calculate approximate distance using Haversine formula
+                double approximateDistanceKm = CalculateApproximateDistance(originLat, originLng, destLat, destLng);
+                int approximateDurationMin = (int)Math.Round(approximateDistanceKm * 2); // Rough estimate: 2 min per km
+
+                return (null, approximateDistanceKm, approximateDurationMin);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "? Route estimation failed");
-                return (null, null, null);
+                _logger.LogWarning(ex, "? Route estimation failed, using fallback calculation");
+
+                // Fallback: Calculate approximate distance
+                double approximateDistanceKm = CalculateApproximateDistance(originLat, originLng, destLat, destLng);
+                int approximateDurationMin = (int)Math.Round(approximateDistanceKm * 2);
+
+                return (null, approximateDistanceKm, approximateDurationMin);
             }
+        }
+
+        private static double CalculateApproximateDistance(double lat1, double lon1, double lat2, double lon2)
+        {
+            const double R = 6371; // Earth's radius in kilometers
+            double dLat = DegreesToRadians(lat2 - lat1);
+            double dLon = DegreesToRadians(lon2 - lon1);
+
+            double a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                       Math.Cos(DegreesToRadians(lat1)) * Math.Cos(DegreesToRadians(lat2)) *
+                       Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+
+            double c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+            double distance = R * c;
+
+            return Math.Round(distance, 2);
+        }
+
+        private static double DegreesToRadians(double degrees)
+        {
+            return degrees * Math.PI / 180;
+        }
+
+        private static decimal CalculateDiscountAmount(decimal originalFare, PromoCode promoCode)
+        {
+            if (originalFare <= 0)
+                return 0;
+
+            decimal discount;
+
+            if (promoCode.DiscountType == PromoDiscountType.Percentage)
+            {
+                discount = originalFare * promoCode.DiscountValue / 100m;
+                if (promoCode.MaxDiscountAmount.HasValue && discount > promoCode.MaxDiscountAmount)
+                    discount = promoCode.MaxDiscountAmount.Value;
+            }
+            else
+            {
+                discount = promoCode.DiscountValue;
+            }
+
+            return Math.Clamp(discount, 0, originalFare);
         }
 
         #endregion
@@ -253,7 +342,8 @@ namespace TurboTaxi.Infrastructure.Services
                     request.VehicleType.ToString(),
                     distanceKm,
                     durationMin,
-                    DateTime.UtcNow);
+                    DateTime.UtcNow,
+                    "Baku");
 
                 if (candidateIds.Count > 0)
                 {
@@ -269,11 +359,11 @@ namespace TurboTaxi.Infrastructure.Services
                             DestinationLng = request.DestinationLng ?? 0,
                             EncodedPolyline = polyline,
                             EstimatedFare = estimatedFare,
-                            DistanceKm = distanceKm,
-                            DurationMinutes = durationMin
+                            DistanceKm = distanceKm ?? 0,
+                            DurationMinutes = durationMin ?? 0
                         };
                         await _notification.NotifyNearestDriversAsync(candidateIds, driverPayload);
-                        _logger.LogInformation($"? Notified {candidateIds.Count} drivers with ride #{ride.Id} (fare: {estimatedFare:F2} AZN, distance: {distanceKm:F2}km)");
+                        _logger.LogInformation($"? Notified {candidateIds.Count} drivers with ride #{ride.Id} (fare: {estimatedFare:F2} AZN, distance: {distanceKm:F2}km, duration: {durationMin}min)");
                     }
                     catch (Exception ex)
                     {
@@ -474,6 +564,9 @@ namespace TurboTaxi.Infrastructure.Services
                     {
                         RideId = ride.Id,
                         Status = ride.Status.ToString(), // "Approved"
+                        EncodedPolyline = polyline,
+                        DistanceKm = distanceKm,
+                        DurationMinutes = durationMin,
                         ClearMap = false,
                         Message = "You accepted this ride! Navigate to pickup location",
                         UserType = "driver"
@@ -764,7 +857,10 @@ namespace TurboTaxi.Infrastructure.Services
         {
             _logger.LogInformation($"? User #{request.UserId} canceling ride #{rideId}");
 
-            var ride = await _db.Rides.FirstOrDefaultAsync(r => r.Id == rideId, ct);
+            var ride = await _db.Rides
+                .Include(r => r.StartLocation)
+                .Include(r => r.EndLocation)
+                .FirstOrDefaultAsync(r => r.Id == rideId, ct);
 
             if (ride == null)
                 throw new KeyNotFoundException($"Ride #{rideId} not found");
@@ -982,7 +1078,8 @@ namespace TurboTaxi.Infrastructure.Services
                         ride.RequestedVehicleType.ToString(),
                         distanceKm ?? 0,
                         durationMin ?? 0,
-                        DateTime.UtcNow);
+                        DateTime.UtcNow,
+                        "Baku");
 
                     var driverPayload = new NewRideRequestPayload
                     {
@@ -1038,6 +1135,123 @@ namespace TurboTaxi.Infrastructure.Services
             {
                 RideId = ride.Id,
                 Status = "Pending" // Ride is now open for other drivers
+            };
+        }
+
+        #endregion
+
+        #region Trip History
+
+        public async Task<PagedResult<UserTripHistoryItem>> GetUserTripHistoryAsync(int userId, TripHistoryQuery query, CancellationToken ct = default)
+        {
+            var pageNumber = NormalizePageNumber(query.PageNumber);
+            var pageSize = NormalizePageSize(query.PageSize);
+
+            var ridesQuery = _db.Rides
+                .AsNoTracking()
+                .Include(r => r.Driver)
+                    .ThenInclude(d => d!.User)
+                .Include(r => r.Driver)
+                    .ThenInclude(d => d!.Vehicle)
+                .Include(r => r.StartLocation)
+                .Include(r => r.EndLocation)
+                .Where(r => r.UserId == userId);
+
+            var totalCount = await ridesQuery.CountAsync(ct);
+
+            var rides = await ridesQuery
+                .OrderByDescending(r => r.RequestedTime
+                    ?? r.CompletedTime
+                    ?? r.CanceledTime
+                    ?? r.PickUpTime
+                    ?? r.AcceptedTime
+                    ?? DateTime.MinValue)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync(ct);
+
+            // Get active promo codes for the user
+            var activePromoCode = await _db.UserPromoCodes
+                .AsNoTracking()
+                .Include(up => up.PromoCode)
+                .Where(up => up.UserId == userId && up.PromoCode.IsActive)
+                .FirstOrDefaultAsync(ct);
+
+            var items = rides.Select(r => new UserTripHistoryItem
+            {
+                RideId = r.Id,
+                DriverName = r.Driver?.User?.Name,
+                DriverSurname = r.Driver?.User?.Surname,
+                DriverPhoneNumber = r.Driver?.User?.PhoneNumber,
+                DriverEmail = r.Driver?.User?.Email,
+                VehiclePlateNumber = r.Driver?.Vehicle?.PlateNumber,
+                VehicleType = r.Driver?.Vehicle?.VehicleType.ToString(),
+                VehicleBrand = r.Driver?.Vehicle?.Brand,
+                VehicleModel = r.Driver?.Vehicle?.Model,
+                PickupAddress = FormatAddress(r.StartLocation),
+                DestinationAddress = FormatAddress(r.EndLocation),
+                Fare = r.ActualFare ?? r.EstimatedFare ?? 0,
+                DiscountAmount = activePromoCode != null ? CalculateDiscountAmount(r.ActualFare ?? r.EstimatedFare ?? 0, activePromoCode.PromoCode) : null,
+                FinalFare = activePromoCode != null ? Math.Max(0, (r.ActualFare ?? r.EstimatedFare ?? 0) - CalculateDiscountAmount(r.ActualFare ?? r.EstimatedFare ?? 0, activePromoCode.PromoCode)) : null,
+                RideDateUtc = ResolveRideDateUtc(r),
+                Status = r.Status.ToString()
+            }).ToList();
+
+            return new PagedResult<UserTripHistoryItem>
+            {
+                Items = items,
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalCount = totalCount,
+                TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
+            };
+        }
+
+        public async Task<PagedResult<DriverTripHistoryItem>> GetDriverTripHistoryAsync(int driverId, TripHistoryQuery query, CancellationToken ct = default)
+        {
+            var pageNumber = NormalizePageNumber(query.PageNumber);
+            var pageSize = NormalizePageSize(query.PageSize);
+
+            var ridesQuery = _db.Rides
+                .AsNoTracking()
+                .Include(r => r.User)
+                .Include(r => r.StartLocation)
+                .Include(r => r.EndLocation)
+                .Where(r => r.DriverId == driverId);
+
+            var totalCount = await ridesQuery.CountAsync(ct);
+
+            var rides = await ridesQuery
+                .OrderByDescending(r => r.RequestedTime
+                    ?? r.CompletedTime
+                    ?? r.CanceledTime
+                    ?? r.PickUpTime
+                    ?? r.AcceptedTime
+                    ?? DateTime.MinValue)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync(ct);
+
+            var items = rides.Select(r => new DriverTripHistoryItem
+            {
+                RideId = r.Id,
+                UserName = r.User?.Name,
+                UserSurname = r.User?.Surname,
+                UserPhoneNumber = r.User?.PhoneNumber,
+                UserEmail = r.User?.Email,
+                PickupAddress = FormatAddress(r.StartLocation),
+                DestinationAddress = FormatAddress(r.EndLocation),
+                RideDateUtc = ResolveRideDateUtc(r),
+                Status = r.Status.ToString()
+            }).ToList();
+
+            return new PagedResult<DriverTripHistoryItem>
+            {
+                Items = items,
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalCount = totalCount,
+                TotalPages = (int)Math.Ceiling(totalCount / (double)pageSize)
             };
         }
 

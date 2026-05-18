@@ -103,5 +103,8 @@ namespace TurboTaxi.Models.Rides
         public bool ClearMap { get; set; } = true;
         public string? Message { get; set; }
         public string? UserType { get; set; } // "user" or "driver" - for client-side handling
+        public string? EncodedPolyline { get; set; } // Google Maps encoded polyline
+        public double? DistanceKm { get; set; } // Distance in kilometers
+        public int? DurationMinutes { get; set; } // Estimated trip duration
     }
 }

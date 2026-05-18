@@ -43,6 +43,7 @@ namespace TurboTaxi.Infrastructure
             services.AddScoped<IVehicleCrudService, VehicleCrudService>();
             services.AddScoped<IDriverCrudService, DriverCrudService>();
             services.AddScoped<IRideService, RideService>();
+            services.AddScoped<IPromoCodeService, PromoCodeService>();
             services.AddScoped<IFareCalculatorService, FareCalculatorService>();
             services.AddScoped<IPendingRideChecker, PendingRideChecker>();
             services.AddScoped<IOffRouteDetectionService, OffRouteDetectionService>();
