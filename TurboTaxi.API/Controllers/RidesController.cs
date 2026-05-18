@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using TurboTaxi.Application.Helpers;
 using TurboTaxi.Application.Interfaces;
 using TurboTaxi.Domain.Enums;
 using TurboTaxi.Models.Rides;
@@ -40,25 +41,69 @@ namespace TurboTaxi.API.Controllers
             }
         }
 
-        [HttpPost("{rideId}/accept")]
-        public async Task<ActionResult<RideAcceptedResponse>> AcceptRide(int rideId, [FromBody] AcceptRideRequest request, CancellationToken ct)
+        /// <summary>Accept by URL ride id (123) or SignalR requestId (ride_123).</summary>
+        [HttpPost("{rideIdOrRequestId}/accept")]
+        public Task<ActionResult<RideAcceptedResponse>> AcceptRide(
+            string rideIdOrRequestId,
+            [FromBody] AcceptRideRequest? request,
+            CancellationToken ct)
+            => AcceptRideCore(rideIdOrRequestId, request, ct);
+
+        /// <summary>Accept when mobile app sends rideId only in JSON body.</summary>
+        [HttpPost("accept")]
+        public async Task<ActionResult<RideAcceptedResponse>> AcceptRideFromBody(
+            [FromBody] AcceptRideRequest request,
+            CancellationToken ct)
         {
+            if (request.RideId <= 0 && string.IsNullOrWhiteSpace(request.RequestId))
+                return BadRequest(new { success = false, error = "rideId or requestId is required in body" });
+
+            var rideKey = request.RideId > 0
+                ? request.RideId.ToString()
+                : request.RequestId!;
+
+            return await AcceptRideCore(rideKey, request, ct);
+        }
+
+        private async Task<ActionResult<RideAcceptedResponse>> AcceptRideCore(
+            string rideIdOrRequestId,
+            AcceptRideRequest? request,
+            CancellationToken ct)
+        {
+            request ??= new AcceptRideRequest();
+
             try
             {
-                return Ok(await _rideService.AcceptRideAsync(rideId, request, ct));
+                if (request.DriverId <= 0)
+                    return BadRequest(new { success = false, error = "driverId is required (body: driverId)" });
+
+                var rideId = request.RideId > 0
+                    ? request.RideId
+                    : RideIdParser.Parse(rideIdOrRequestId);
+
+                _logger.LogInformation(
+                    "POST accept rideId={RideId} driverId={DriverId} lat={Lat} lng={Lng}",
+                    rideId, request.DriverId, request.DriverLat, request.DriverLng);
+
+                var result = await _rideService.AcceptRideAsync(rideId, request, ct);
+                return Ok(result);
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { success = false, error = ex.Message });
             }
             catch (KeyNotFoundException ex)
             {
-                return NotFound(new { error = ex.Message });
+                return NotFound(new { success = false, error = ex.Message });
             }
             catch (InvalidOperationException ex)
             {
-                return BadRequest(new { error = ex.Message });
+                return BadRequest(new { success = false, error = ex.Message });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Error accepting ride #{rideId}");
-                return StatusCode(500, new { error = "Failed to accept ride", details = ex.Message });
+                _logger.LogError(ex, "Error accepting ride {RideIdOrRequestId}", rideIdOrRequestId);
+                return StatusCode(500, new { success = false, error = "Failed to accept ride", details = ex.Message });
             }
         }
 
