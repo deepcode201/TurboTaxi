@@ -106,6 +106,16 @@ namespace TurboTaxi.Models.Rides
         public string Status { get; set; } = null!;
     }
 
+    /// <summary>SignalR payload — driver should remove ride from pending list.</summary>
+    public class RideDismissedPayload
+    {
+        public int RideId { get; set; }
+        /// <summary>Canceled | Taken</summary>
+        public string Reason { get; set; } = null!;
+        public string Status { get; set; } = "Canceled";
+        public string? Message { get; set; }
+    }
+
     // SignalR Payload for Driver - sent when new ride request arrives
     public class NewRideRequestPayload
     {

@@ -173,104 +173,105 @@ connection.on('RideStatusUpdated', (rideId, status, payload) => {
 
 ---
 
-## 2️⃣ **User Cancel Sorunu - ÇÖZÜLDÜ ✅**
+## 2️⃣ **User Pending sifarişi cancel edəndə — Driver-dan silinməli**
 
-### Problem
-User sipariş iptal ettiğinde, Driver'ın notification'ı silinmiyor.
+### Backend (hazırdır)
 
+User cancel edəndə:
+
+```http
+POST /api/rides/{rideId}/cancel-by-user
+{ "userId": 1 }
 ```
-BEFORE (❌):
-User: "Sipariş iptal ettim" → Backend ✓ → Driver: "Hala notification var" ❌
-```
 
-### Çözüm
-Tüm Driver'lar bağlandığı zaman **"all_drivers"** grup'una auto-subscribe oluyor.
+Server bütün qoşulu sürücülərə göndərir:
 
-```javascript
-// Backend
-// DriverHub.cs - OnConnectedAsync()
-public override async Task OnConnectedAsync()
+| Event | Nə vaxt |
+|-------|---------|
+| **`RideRequestRemoved`** | User cancel / başqa driver accept — **əsas event** |
+| `RideStatusUpdated` | Köhnə app-lər üçün (eyni payload) |
+
+Payload:
+
+```json
 {
-    // Driver otomatik olarak "all_drivers" grubuna ekleniyor
-    await Groups.AddToGroupAsync(Context.ConnectionId, "all_drivers");
-    await base.OnConnectedAsync();
+  "rideId": 123,
+  "reason": "Canceled",
+  "status": "Canceled",
+  "message": "This ride has been canceled by the user"
 }
 ```
 
-### React Native Tarafında Yapılması Gerekenler
+`reason`: `"Canceled"` | `"Taken"`
 
-#### 1. **Notification Listener**
+### React Native — Driver app (MÜTLƏQ)
+
+Hub: `/hubs/driver` (connect zamanı `all_drivers` qrupuna düşür).
 
 ```javascript
-import { useEffect, useState } from 'react';
-import { HubConnectionBuilder } from '@microsoft/signalr';
+// Pending sifarişlər state
+const [pendingRides, setPendingRides] = useState([]);
 
-const RideListScreen = () => {
-  const [activeRides, setActiveRides] = useState([]); // [{ rideId, status, ... }]
-  const [connection, setConnection] = useState(null);
+const resolveRideId = (rideId, payload) =>
+  payload?.rideId ?? payload?.RideId ?? rideId;
 
-  useEffect(() => {
-    // SignalR bağlantısı kur
-    const hubConnection = new HubConnectionBuilder()
-      .withUrl('https://yourapi.com/driver-hub')
-      .withAutomaticReconnect()
-      .build();
+const removePendingRide = (rideId, payload) => {
+  const id = resolveRideId(rideId, payload);
+  setPendingRides((prev) => prev.filter((r) => r.rideId !== id));
+  // Modal açıqdırsa bağla
+  if (activeOffer?.rideId === id) setActiveOffer(null);
+};
 
-    hubConnection.start();
+// ✅ ƏSAS — user cancel / ride taken
+connection.on('RideRequestRemoved', (rideId, payload) => {
+  removePendingRide(rideId, payload);
+  if (payload?.reason === 'Canceled' || payload?.status === 'Canceled') {
+    showToast('Sifariş ləğv edildi', 'info');
+  }
+});
 
-    // ✅ NEW: RideStatusUpdated event'ini dinle
-    hubConnection.on('RideStatusUpdated', (rideId, status, payload) => {
-      console.log('Ride Status Updated:', rideId, payload.Status);
+// Köhnə listener (saxlayın — uyğunluq)
+connection.on('RideStatusUpdated', (rideId, status, payload) => {
+  const s = (status || payload?.status || payload?.Status || '').toLowerCase();
+  if (s === 'canceled' || s === 'taken' || s === 'ridecanceled' || s === 'ridetaken') {
+    removePendingRide(rideId, payload);
+  }
+});
 
-      // Eğer sipariş "Canceled" ise list'ten kaldır
-      if (payload.Status === 'Canceled') {
-        setActiveRides((prev) =>
-          prev.filter((ride) => ride.rideId !== rideId)
-        );
-        
-        // Toast notification göster
-        showToast('Sipariş iptal edildi', 'info');
-      }
+// Yeni sifariş
+connection.on('NewRideRequest', (requestId, payload) => {
+  const rideId = payload?.rideId ?? payload?.RideId
+    ?? parseInt(String(requestId || '').replace('ride_', ''), 10);
+  setPendingRides((prev) => {
+    if (prev.some((r) => r.rideId === rideId)) return prev;
+    return [{
+      rideId,
+      pickupLat: payload.pickupLat ?? payload.PickupLat,
+      pickupLng: payload.pickupLng ?? payload.PickupLng,
+      estimatedFare: payload.estimatedFare ?? payload.EstimatedFare,
+      distanceKm: payload.distanceKm ?? payload.DistanceKm,
+      durationMinutes: payload.durationMinutes ?? payload.DurationMinutes,
+    }, ...prev];
+  });
+});
+```
 
-      // Eğer sipariş "Taken" ise list'ten kaldır
-      if (payload.Status === 'Taken') {
-        setActiveRides((prev) =>
-          prev.filter((ride) => ride.rideId !== rideId)
-        );
-      }
-    });
+User cancel API (User app):
 
-    // ✅ NEW: NewRideRequest - Yeni sipariş geldi
-    hubConnection.on('NewRideRequest', (requestId, payload) => {
-      console.log('New Ride Request:', payload.RideId);
+```http
+POST /api/rides/{rideId}/cancel-by-user
+Content-Type: application/json
+{ "userId": 1 }
+```
 
-      // Yeni sipariş'i list'e ekle
-      const newRide = {
-        rideId: payload.RideId,
-        pickupLat: payload.PickupLat,
-        pickupLng: payload.PickupLng,
-        destLat: payload.DestinationLat,
-        destLng: payload.DestinationLng,
-        estimatedFare: payload.EstimatedFare,
-        distanceKm: payload.DistanceKm,        // ← YENI!
-        durationMinutes: payload.DurationMinutes, // ← YENI!
-        vehicleType: payload.VehicleType,
-        encodedPolyline: payload.EncodedPolyline, // ← YENI!
-      };
+---
 
-      setActiveRides((prev) => [newRide, ...prev]);
-    });
+(Eski nümunə — FlatList)
 
-    setConnection(hubConnection);
-
-    return () => {
-      hubConnection.stop();
-    };
-  }, []);
-
+```javascript
   return (
     <FlatList
-      data={activeRides}
+      data={pendingRides}
       keyExtractor={(item) => item.rideId.toString()}
       renderItem={({ item }) => (
         <RideCard

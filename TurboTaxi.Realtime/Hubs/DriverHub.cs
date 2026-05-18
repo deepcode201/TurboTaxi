@@ -12,6 +12,8 @@ namespace TurboTaxi.Realtime.Hubs
     {
         Task DriverLocationUpdated(int driverId, double lat, double lng);
         Task NewRideRequest(string requestId, object payload);
+        /// <summary>Remove pending ride card from driver UI (user canceled or another driver accepted).</summary>
+        Task RideRequestRemoved(int rideId, object payload);
         Task RideStatusUpdated(int rideId, string status, object payload);
     }
 

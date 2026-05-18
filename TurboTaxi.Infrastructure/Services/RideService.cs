@@ -1029,23 +1029,26 @@ namespace TurboTaxi.Infrastructure.Services
                 }
             }
 
-            // Notify all drivers about ride cancellation to remove it from their notifications
             try
             {
-                // Clean up notification keys from Redis
                 await _redis.DeleteKeysByPatternAsync($"notify:ride:{rideId}:driver:*");
-                _logger.LogInformation($"✓ Cleaned up notification keys for ride #{rideId}");
-
-                // Send cancellation notification to all drivers (to remove ride from their UI)
-                await _notification.NotifyAllDriversRideCanceled(rideId);
-                _logger.LogInformation($"✓ All drivers notified about ride #{rideId} cancellation");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to notify drivers or clean up keys");
+                _logger.LogWarning(ex, "Failed to clean Redis keys for ride #{RideId}", rideId);
             }
 
-            _logger.LogInformation($"✓ Ride #{rideId} canceled by user #{request.UserId}");
+            var canceledRideId = ride.Id;
+            _backgroundNotifier.Run(async (sp, _) =>
+            {
+                if (prevStatus == RideStatus.Pending)
+                {
+                    var notification = sp.GetRequiredService<IRideNotificationService>();
+                    await notification.NotifyAllDriversRideCanceled(canceledRideId);
+                }
+            });
+
+            _logger.LogInformation("Ride #{RideId} canceled by user #{UserId}", rideId, request.UserId);
 
             return new CancelRideResponse
             {
