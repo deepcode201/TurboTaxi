@@ -530,42 +530,25 @@ namespace TurboTaxi.Infrastructure.Services
 
                 _logger.LogInformation("Driver location for accept: ({Lat:F5}, {Lng:F5})", driverLat, driverLng);
 
-                // Estimate route from driver to pickup
-                string? approachPolyline;
-                double? approachDistanceKm;
-                int? approachDurationMin;
-
-                (approachPolyline, approachDistanceKm, approachDurationMin) = await EstimateRouteAsync(
+                // Fast accept: straight-line polyline (no Google/OSRM wait — mobile apps timeout otherwise)
+                var approach = PolylineDistanceHelper.CreateStraightRoute(
                     driverLat, driverLng,
-                    ride.StartLocation.Latitude, ride.StartLocation.Longitude,
-                    ct);
+                    ride.StartLocation.Latitude, ride.StartLocation.Longitude);
+                var approachPolyline = approach.Polyline;
+                var approachDistanceKm = approach.DistanceKm;
+                var approachDurationMin = approach.DurationMinutes;
 
-                if (string.IsNullOrWhiteSpace(approachPolyline))
-                {
-                    _logger.LogWarning("Routing API failed for ride #{RideId}; using straight-line fallback", rideId);
-                    var fallback = PolylineDistanceHelper.CreateStraightRoute(
-                        driverLat, driverLng,
-                        ride.StartLocation.Latitude, ride.StartLocation.Longitude);
-                    approachPolyline = fallback.Polyline;
-                    approachDistanceKm = fallback.DistanceKm;
-                    approachDurationMin = fallback.DurationMinutes;
-                }
-
-                // Keep trip polyline (pickup -> destination) for user map overview
                 var tripPolyline = ride.RoutePolyline;
-                if (string.IsNullOrWhiteSpace(tripPolyline))
+                if (string.IsNullOrWhiteSpace(tripPolyline)
+                    && IsValidCoordinate(ride.EndLocation.Latitude, ride.EndLocation.Longitude))
                 {
-                    (tripPolyline, _, _) = await EstimateRouteAsync(
+                    tripPolyline = PolylineDistanceHelper.CreateStraightRoute(
                         ride.StartLocation.Latitude, ride.StartLocation.Longitude,
-                        ride.EndLocation.Latitude, ride.EndLocation.Longitude,
-                        ct);
-
-                    if (string.IsNullOrWhiteSpace(tripPolyline))
-                    {
-                        tripPolyline = PolylineDistanceHelper.CreateStraightRoute(
-                            ride.StartLocation.Latitude, ride.StartLocation.Longitude,
-                            ride.EndLocation.Latitude, ride.EndLocation.Longitude).Polyline;
-                    }
+                        ride.EndLocation.Latitude, ride.EndLocation.Longitude).Polyline;
+                }
+                else if (string.IsNullOrWhiteSpace(tripPolyline))
+                {
+                    tripPolyline = approachPolyline;
                 }
 
                 // Update ride
@@ -617,7 +600,7 @@ namespace TurboTaxi.Infrastructure.Services
                         PolylinePhase = "Approach",
                         DistanceKm = approachDistanceKm,
                         DurationMinutes = approachDurationMin,
-                        Message = $"Driver is coming! ETA: {approachDurationMin ?? 0} min"
+                        Message = $"Driver is coming! ETA: {approachDurationMin} min"
                     });
                 }
                 catch (Exception ex)
@@ -663,6 +646,7 @@ namespace TurboTaxi.Infrastructure.Services
 
                 return new RideAcceptedResponse
                 {
+                    Success = true,
                     RideId = ride.Id,
                     DriverId = request.DriverId,
                     Status = ride.Status.ToString(),

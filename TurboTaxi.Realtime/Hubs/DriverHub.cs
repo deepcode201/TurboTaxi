@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TurboTaxi.Application.Helpers;
 using TurboTaxi.Application.Interfaces;
 using TurboTaxi.Models.Realtime;
 using TurboTaxi.Models.Rides;
@@ -114,12 +115,29 @@ namespace TurboTaxi.Realtime.Hubs
         /// Accept a pending ride (same as POST /api/rides/{rideId}/accept).
         /// Location is optional — backend uses Redis, request coords, or pickup fallback.
         /// </summary>
-        public async Task<RideAcceptedResponse> AcceptRide(
+        public Task<RideAcceptedResponse> AcceptRide(
             int rideId,
             int driverId,
             double? driverLat = null,
             double? driverLng = null)
+            => AcceptRideCore(rideId.ToString(), driverId, driverLat, driverLng);
+
+        /// <summary>Accept using SignalR requestId string (e.g. "ride_123").</summary>
+        public Task<RideAcceptedResponse> AcceptRideByRequestId(
+            string rideIdOrRequestId,
+            int driverId,
+            double? driverLat = null,
+            double? driverLng = null)
+            => AcceptRideCore(rideIdOrRequestId, driverId, driverLat, driverLng);
+
+        private async Task<RideAcceptedResponse> AcceptRideCore(
+            string rideIdOrRequestId,
+            int driverId,
+            double? driverLat,
+            double? driverLng)
         {
+            var rideId = RideIdParser.Parse(rideIdOrRequestId);
+
             _logger.LogInformation(
                 "[SignalR] AcceptRide: rideId={RideId}, driverId={DriverId}, lat={Lat}, lng={Lng}",
                 rideId, driverId, driverLat, driverLng);
@@ -162,6 +180,6 @@ namespace TurboTaxi.Realtime.Hubs
             int rideId,
             double? driverLat = null,
             double? driverLng = null)
-            => AcceptRide(rideId, driverId, driverLat, driverLng);
+            => AcceptRideCore(rideId.ToString(), driverId, driverLat, driverLng);
     }
 }

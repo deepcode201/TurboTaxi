@@ -30,6 +30,10 @@ namespace TurboTaxi.Models.Rides
 
     public class AcceptRideRequest
     {
+        /// <summary>Ride id (if not in URL). Also accepts SignalR requestId in RequestId.</summary>
+        public int RideId { get; set; }
+        /// <summary>SignalR first arg e.g. "ride_123".</summary>
+        public string? RequestId { get; set; }
         public int DriverId { get; set; }
         /// <summary>Optional — used when Redis has no recent driver location.</summary>
         public double? DriverLat { get; set; }
@@ -38,6 +42,7 @@ namespace TurboTaxi.Models.Rides
 
     public class RideAcceptedResponse
     {
+        public bool Success { get; set; } = true;
         public int RideId { get; set; }
         public int DriverId { get; set; }
         public string Status { get; set; } = null!;
