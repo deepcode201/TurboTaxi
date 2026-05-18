@@ -5,6 +5,7 @@ using TurboTaxi.Domain.Entities;
 using TurboTaxi.Domain.Enums;
 using TurboTaxi.Infrastructure.Data;
 using TurboTaxi.Models.PromoCodes;
+using TurboTaxi.Models.Trips;
 
 namespace TurboTaxi.Infrastructure.Services
 {
@@ -240,6 +241,109 @@ namespace TurboTaxi.Infrastructure.Services
 
             promoCode.IsActive = false;
             await _db.SaveChangesAsync(ct);
+        }
+
+        public async Task<PagedResult<UserPromoCodeDto>> GetUserPromoCodesAsync(
+            PromoCodeListQuery query,
+            CancellationToken ct = default)
+        {
+            if (query.UserId.HasValue)
+            {
+                var userExists = await _db.Users.AnyAsync(u => u.Id == query.UserId.Value, ct);
+                if (!userExists)
+                    throw new KeyNotFoundException($"User #{query.UserId.Value} not found");
+            }
+
+            var pageNumber = NormalizePageNumber(query.PageNumber);
+            var pageSize = NormalizePageSize(query.PageSize);
+
+            var dbQuery = _db.UserPromoCodes
+                .AsNoTracking()
+                .Include(up => up.PromoCode)
+                .AsQueryable();
+
+            if (query.UserId.HasValue)
+                dbQuery = dbQuery.Where(up => up.UserId == query.UserId.Value);
+
+            if (query.ActiveOnly == true)
+            {
+                var now = DateTime.UtcNow;
+                dbQuery = dbQuery.Where(up =>
+                    up.PromoCode.IsActive
+                    && (!up.PromoCode.StartDate.HasValue || up.PromoCode.StartDate <= now)
+                    && (!up.PromoCode.EndDate.HasValue || up.PromoCode.EndDate >= now)
+                    && (!up.PromoCode.MaxUsagePerUser.HasValue || up.UsedCount < up.PromoCode.MaxUsagePerUser));
+            }
+
+            var totalCount = await dbQuery.CountAsync(ct);
+
+            var rows = await dbQuery
+                .OrderByDescending(up => up.CreatedTime)
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync(ct);
+
+            var items = rows.Select(MapToUserPromoCodeDto).ToList();
+
+            return new PagedResult<UserPromoCodeDto>
+            {
+                Items = items,
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalCount = totalCount,
+                TotalPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)pageSize)
+            };
+        }
+
+        private static UserPromoCodeDto MapToUserPromoCodeDto(UserPromoCode up)
+        {
+            var p = up.PromoCode;
+            return new UserPromoCodeDto
+            {
+                UserPromoCodeId = up.Id,
+                UserId = up.UserId,
+                PromoCodeId = p.Id,
+                Code = p.Code,
+                Description = p.Description,
+                DiscountType = p.DiscountType,
+                DiscountValue = p.DiscountValue,
+                MaxDiscountAmount = p.MaxDiscountAmount,
+                StartDate = p.StartDate,
+                EndDate = p.EndDate,
+                MaxUsagePerUser = p.MaxUsagePerUser,
+                MaxUsageCount = p.MaxUsageCount,
+                UsedCount = up.UsedCount,
+                RemainingRideCount = GetRemainingRideCount(up, p),
+                IsActive = p.IsActive,
+                CanUse = CanUsePromo(up, p),
+                LastUsedTime = up.LastUsedTime,
+                CreatedTime = up.CreatedTime
+            };
+        }
+
+        private static bool CanUsePromo(UserPromoCode userPromoCode, PromoCode promoCode)
+        {
+            if (!promoCode.IsActive)
+                return false;
+
+            var now = DateTime.UtcNow;
+            if (promoCode.StartDate.HasValue && promoCode.StartDate > now)
+                return false;
+            if (promoCode.EndDate.HasValue && promoCode.EndDate < now)
+                return false;
+            if (promoCode.MaxUsagePerUser.HasValue && userPromoCode.UsedCount >= promoCode.MaxUsagePerUser)
+                return false;
+
+            return true;
+        }
+
+        private static int NormalizePageNumber(int pageNumber) => pageNumber < 1 ? 1 : pageNumber;
+
+        private static int NormalizePageSize(int pageSize)
+        {
+            if (pageSize < 1)
+                return 20;
+            return pageSize > 100 ? 100 : pageSize;
         }
 
         private static decimal CalculateDiscount(decimal originalFare, PromoCode promoCode)

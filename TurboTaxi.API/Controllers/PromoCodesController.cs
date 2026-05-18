@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using TurboTaxi.Application.Interfaces;
 using TurboTaxi.Models.PromoCodes;
+using TurboTaxi.Models.Trips;
 
 namespace TurboTaxi.API.Controllers
 {
@@ -15,6 +16,68 @@ namespace TurboTaxi.API.Controllers
         {
             _promoCodeService = promoCodeService;
             _logger = logger;
+        }
+
+        /// <summary>Promo kodları siyahısı (pagination). İstəyə görə userId ilə filter.</summary>
+        [HttpGet]
+        public async Task<ActionResult<PagedResult<UserPromoCodeDto>>> GetList(
+            [FromQuery] int? userId,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 20,
+            [FromQuery] bool? activeOnly = null,
+            CancellationToken ct = default)
+        {
+            try
+            {
+                var query = new PromoCodeListQuery
+                {
+                    UserId = userId,
+                    PageNumber = pageNumber,
+                    PageSize = pageSize,
+                    ActiveOnly = activeOnly
+                };
+                return Ok(await _promoCodeService.GetUserPromoCodesAsync(query, ct));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to list promo codes");
+                return StatusCode(500, new { error = "Failed to list promo codes", details = ex.Message });
+            }
+        }
+
+        /// <summary>Verilmiş user-ə təyin olunmuş promo kodlar (pagination).</summary>
+        [HttpGet("user/{userId:int}")]
+        public async Task<ActionResult<PagedResult<UserPromoCodeDto>>> GetByUserId(
+            int userId,
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 20,
+            [FromQuery] bool? activeOnly = null,
+            CancellationToken ct = default)
+        {
+            try
+            {
+                var query = new PromoCodeListQuery
+                {
+                    UserId = userId,
+                    PageNumber = pageNumber,
+                    PageSize = pageSize,
+                    ActiveOnly = activeOnly
+                };
+                return Ok(await _promoCodeService.GetUserPromoCodesAsync(query, ct));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get promo codes for user {UserId}", userId);
+                return StatusCode(500, new { error = "Failed to get user promo codes", details = ex.Message });
+            }
         }
 
         [HttpPost]
