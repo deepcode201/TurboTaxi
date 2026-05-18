@@ -51,6 +51,7 @@ namespace TurboTaxi.Infrastructure
             services.AddScoped<IRideUserLookupService, RideUserLookupService>();
             services.AddScoped<IRideChatAccess, RideChatAccessService>();
             services.AddScoped<IChatService, ChatService>();
+            services.AddSingleton<IBackgroundRideNotifier, BackgroundRideNotifier>();
             services.AddHostedService<PendingRideRetryService>();
 
             return services;

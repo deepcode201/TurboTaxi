@@ -109,25 +109,9 @@ namespace TurboTaxi.Realtime.Services
                 var rideId = ExtractRideId(payload);
                 driverIds ??= new List<int>();
 
-                if (driverIds.Count == 0)
-                {
-                    _logger.LogWarning("[SignalR] No matched driver IDs for ride {RideId}; broadcasting to all_drivers only", rideId);
-                }
-                else
-                {
-                    _logger.LogInformation("[SignalR] Sending new ride request {RideId} to {Count} drivers", rideId, driverIds.Count);
-
-                    foreach (var driverId in driverIds)
-                    {
-                        if (driverId <= 0) continue;
-
-                        var groupName = $"driver:{driverId}";
-                        await _messageQueueService.EnqueueAndSendAsync(groupName, "NewRideRequest", $"ride_{rideId}", payload);
-                    }
-                }
-
+                // Single broadcast — avoids duplicate messages (per-driver + all_drivers was overloading sockets)
                 await _messageQueueService.EnqueueAndSendAsync("all_drivers", "NewRideRequest", $"ride_{rideId}", payload);
-                _logger.LogInformation("[SignalR] New ride {RideId} broadcast to all_drivers", rideId);
+                _logger.LogDebug("[SignalR] New ride {RideId} -> all_drivers ({Matched} matched)", rideId, driverIds.Count);
             }
             catch (Exception ex)
             {
