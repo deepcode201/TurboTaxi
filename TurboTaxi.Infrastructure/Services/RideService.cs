@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
+using System.Text;
 using TurboTaxi.Application.Interfaces;
 using TurboTaxi.Domain.Entities;
 using TurboTaxi.Domain.Enums;
@@ -131,7 +132,10 @@ namespace TurboTaxi.Infrastructure.Services
                 double approximateDistanceKm = CalculateApproximateDistance(originLat, originLng, destLat, destLng);
                 int approximateDurationMin = (int)Math.Round(approximateDistanceKm * 2); // Rough estimate: 2 min per km
 
-                return (null, approximateDistanceKm, approximateDurationMin);
+                // Fallback: Create a simple encoded polyline (straight line between two points)
+                string fallbackPolyline = CreateSimplePolyline(originLat, originLng, destLat, destLng);
+
+                return (fallbackPolyline, approximateDistanceKm, approximateDurationMin);
             }
             catch (Exception ex)
             {
@@ -141,7 +145,10 @@ namespace TurboTaxi.Infrastructure.Services
                 double approximateDistanceKm = CalculateApproximateDistance(originLat, originLng, destLat, destLng);
                 int approximateDurationMin = (int)Math.Round(approximateDistanceKm * 2);
 
-                return (null, approximateDistanceKm, approximateDurationMin);
+                // Fallback: Create a simple encoded polyline
+                string fallbackPolyline = CreateSimplePolyline(originLat, originLng, destLat, destLng);
+
+                return (fallbackPolyline, approximateDistanceKm, approximateDurationMin);
             }
         }
 
@@ -164,6 +171,59 @@ namespace TurboTaxi.Infrastructure.Services
         private static double DegreesToRadians(double degrees)
         {
             return degrees * Math.PI / 180;
+        }
+
+        private static string CreateSimplePolyline(double lat1, double lon1, double lat2, double lon2)
+        {
+            // Create a simple 2-point polyline (straight line between origin and destination)
+            // Google Maps Polyline Algorithm Format
+            // This is a very basic implementation - just encodes the two endpoints
+
+            List<(double lat, double lng)> points = new()
+            {
+                (lat1, lon1),
+                (lat2, lon2)
+            };
+
+            return EncodePolyline(points);
+        }
+
+        private static string EncodePolyline(List<(double lat, double lng)> points)
+        {
+            // Google Maps Polyline encoding algorithm
+            var encoded = new StringBuilder();
+            int prevLat = 0;
+            int prevLng = 0;
+
+            foreach (var (lat, lng) in points)
+            {
+                int currLat = (int)Math.Round(lat * 1e5);
+                int currLng = (int)Math.Round(lng * 1e5);
+
+                EncodeValue(encoded, currLat - prevLat);
+                EncodeValue(encoded, currLng - prevLng);
+
+                prevLat = currLat;
+                prevLng = currLng;
+            }
+
+            return encoded.ToString();
+        }
+
+        private static void EncodeValue(StringBuilder encoded, int value)
+        {
+            value = value << 1;
+            if (value < 0)
+                value = ~value;
+
+            while (value >= 0x20)
+            {
+                int chunk = (0x20 | (value & 0x1f)) + 63;
+                encoded.Append((char)chunk);
+                value >>= 5;
+            }
+
+            encoded.Append((char)(value + 63));
         }
 
         private static decimal CalculateDiscountAmount(decimal originalFare, PromoCode promoCode)
