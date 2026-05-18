@@ -37,7 +37,7 @@ namespace TurboTaxi.Infrastructure.BackgroundServices
                     _logger.LogError(ex, "Error in PendingRideRetryService");
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                await Task.Delay(TimeSpan.FromSeconds(90), stoppingToken);
             }
         }
 
@@ -65,6 +65,11 @@ namespace TurboTaxi.Infrastructure.BackgroundServices
             {
                 try
                 {
+                    var dedupeKey = $"notify:retry:ride:{ride.Id}";
+                    var shouldNotify = await redis.SetStringIfNotExistsAsync(dedupeKey, "1", TimeSpan.FromMinutes(2));
+                    if (!shouldNotify)
+                        continue;
+
                     var vehicleType = ride.RequestedVehicleType.ToString().ToLowerInvariant();
                     var geoKey = $"geo:drivers:{vehicleType}";
                     
@@ -104,15 +109,6 @@ namespace TurboTaxi.Infrastructure.BackgroundServices
                             PickupLng = ride.StartLocation.Longitude,
                             DestinationLat = ride.EndLocation?.Latitude,
                             DestinationLng = ride.EndLocation?.Longitude
-                        });
-
-                        // Notify user that drivers are being notified
-                        await notification.NotifyUserAsync(ride.UserId, new
-                        {
-                            RideId = ride.Id,
-                            Status = "Searching",
-                            Message = $"Notifying {candidateIds.Count} nearby drivers",
-                            DriverCount = candidateIds.Count
                         });
                     }
                 }

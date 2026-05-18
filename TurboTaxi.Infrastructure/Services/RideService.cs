@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using StackExchange.Redis;
 using TurboTaxi.Application.Interfaces;
@@ -22,6 +23,7 @@ namespace TurboTaxi.Infrastructure.Services
         private readonly IRouteEstimationService _routeEstimation;
         private readonly IFareCalculatorService _fareCalculator;
         private readonly IPromoCodeService _promoCodeService;
+        private readonly IBackgroundRideNotifier _backgroundNotifier;
         private readonly ILogger<RideService> _logger;
 
         public RideService(
@@ -31,6 +33,7 @@ namespace TurboTaxi.Infrastructure.Services
             IRouteEstimationService routeEstimation,
             IFareCalculatorService fareCalculator,
             IPromoCodeService promoCodeService,
+            IBackgroundRideNotifier backgroundNotifier,
             ILogger<RideService> logger)
         {
             _db = db;
@@ -39,6 +42,7 @@ namespace TurboTaxi.Infrastructure.Services
             _routeEstimation = routeEstimation;
             _fareCalculator = fareCalculator;
             _promoCodeService = promoCodeService;
+            _backgroundNotifier = backgroundNotifier;
             _logger = logger;
         }
 
@@ -356,48 +360,31 @@ namespace TurboTaxi.Infrastructure.Services
                     _logger.LogError(ex, "Promo preview failed for ride #{RideId}; notifying drivers anyway", ride.Id);
                 }
 
-                _logger.LogInformation($"?? Notifying {candidateIds.Count} matched drivers (+ all_drivers broadcast)");
-
-                try
+                var createdRideId = ride.Id;
+                var createdUserId = ride.UserId;
+                var driverPayload = new NewRideRequestPayload
                 {
-                    var driverPayload = new NewRideRequestPayload
-                    {
-                        RideId = ride.Id,
-                        VehicleType = request.VehicleType.ToString(),
-                        PickupLat = request.PickupLat,
-                        PickupLng = request.PickupLng,
-                        DestinationLat = request.DestinationLat ?? 0,
-                        DestinationLng = request.DestinationLng ?? 0,
-                        EncodedPolyline = polyline,
-                        EstimatedFare = fareForUser,
-                        DistanceKm = distanceKm,
-                        DurationMinutes = durationMin
-                    };
+                    RideId = createdRideId,
+                    VehicleType = request.VehicleType.ToString(),
+                    PickupLat = request.PickupLat,
+                    PickupLng = request.PickupLng,
+                    DestinationLat = request.DestinationLat ?? 0,
+                    DestinationLng = request.DestinationLng ?? 0,
+                    EncodedPolyline = polyline,
+                    EstimatedFare = fareForUser,
+                    DistanceKm = distanceKm,
+                    DurationMinutes = durationMin
+                };
+                var matchedDriverIds = candidateIds.ToList();
 
-                    await _notification.NotifyNearestDriversAsync(candidateIds, driverPayload);
-                    _logger.LogInformation(
-                        "? Ride #{RideId} notification sent ({Count} matched drivers, fare: {Fare:F2} AZN)",
-                        ride.Id, candidateIds.Count, fareForUser);
-
-                    if (candidateIds.Count == 0)
-                    {
-                        _logger.LogWarning(
-                            "No drivers matched for ride #{RideId} (vehicle={VehicleType}, geo count={GeoCount})",
-                            ride.Id, request.VehicleType, nearbyDrivers.Length);
-                    }
-                }
-                catch (Exception ex)
+                _backgroundNotifier.Run(async (sp, _) =>
                 {
-                    _logger.LogError(ex, "Failed to notify drivers for ride #{RideId}", ride.Id);
-                }
-
-                // Notify user
-                try
-                {
-                    await _notification.NotifyUserAsync(ride.UserId, new
+                    var notification = sp.GetRequiredService<IRideNotificationService>();
+                    await notification.NotifyNearestDriversAsync(matchedDriverIds, driverPayload);
+                    await notification.NotifyUserAsync(createdUserId, new
                     {
-                        RideId = ride.Id,
-                        Status = ride.Status.ToString(),
+                        RideId = createdRideId,
+                        Status = "Pending",
                         PickupLat = request.PickupLat,
                         PickupLng = request.PickupLng,
                         DestinationLat = request.DestinationLat,
@@ -413,14 +400,17 @@ namespace TurboTaxi.Infrastructure.Services
                         PromoApplied = promoPreview.Applied,
                         PromoCode = promoPreview.PromoCode,
                         Message = "Searching for nearby drivers..."
-                    }); 
-                }
-                catch (Exception ex)
+                    });
+                });
+
+                if (candidateIds.Count == 0)
                 {
-                    _logger.LogError(ex, "Failed to notify user");
+                    _logger.LogWarning(
+                        "No drivers matched for ride #{RideId} (vehicle={VehicleType}, geo count={GeoCount})",
+                        ride.Id, request.VehicleType, nearbyDrivers.Length);
                 }
 
-                _logger.LogInformation($"? Ride #{ride.Id} creation completed successfully");
+                _logger.LogInformation("Ride #{RideId} created; notifications queued", ride.Id);
 
                 return new CreateRideResponse
                 {
@@ -562,9 +552,9 @@ namespace TurboTaxi.Infrastructure.Services
                 _logger.LogInformation($"   Saving ride changes to database...");
                 await _db.SaveChangesAsync(ct);
 
-                _logger.LogInformation($"? Ride #{rideId} accepted by driver #{request.DriverId}");
+                _logger.LogInformation("Ride #{RideId} accepted by driver #{DriverId}", rideId, request.DriverId);
 
-                // Update driver status in Redis
+                // Redis status (fast, keep on critical path)
                 try
                 {
                     await _redis.HashSetAsync(RedisKeys.DriverHash(request.DriverId), new HashEntry[]
@@ -574,77 +564,13 @@ namespace TurboTaxi.Infrastructure.Services
                         new("currentUserId", ride.UserId.ToString()),
                         new("updatedAt", DateTime.UtcNow.ToString("O"))
                     });
-                    _logger.LogInformation($"? Driver #{request.DriverId} status ? Busy");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, $"Failed to update driver #{request.DriverId} status in Redis");
+                    _logger.LogWarning(ex, "Redis update failed for driver #{DriverId}", request.DriverId);
                 }
 
-                // Notify user
-                try
-                {
-                    await _notification.NotifyUserAsync(ride.UserId, new
-                    {
-                        RideId = ride.Id,
-                        Status = ride.Status.ToString(),
-                        DriverId = ride.DriverId,
-                        DriverLat = driverLat,
-                        DriverLng = driverLng,
-                        PickupLat = ride.StartLocation.Latitude,
-                        PickupLng = ride.StartLocation.Longitude,
-                        DestinationLat = ride.EndLocation.Latitude,
-                        DestinationLng = ride.EndLocation.Longitude,
-                        EncodedPolyline = approachPolyline,
-                        TripEncodedPolyline = tripPolyline,
-                        PolylinePhase = "Approach",
-                        DistanceKm = approachDistanceKm,
-                        DurationMinutes = approachDurationMin,
-                        Message = $"Driver is coming! ETA: {approachDurationMin} min"
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, $"Failed to notify user #{ride.UserId}");
-                }
-
-                // Notify driver with current accepted ride info
-                try
-                {
-                    var driverPayload = new RideCompletionPayload
-                    {
-                        RideId = ride.Id,
-                        Status = ride.Status.ToString(), // "Approved"
-                        EncodedPolyline = approachPolyline,
-                        TripEncodedPolyline = tripPolyline,
-                        PolylinePhase = "Approach",
-                        DistanceKm = approachDistanceKm,
-                        DurationMinutes = approachDurationMin,
-                        ClearMap = false,
-                        Message = "You accepted this ride! Navigate to pickup location",
-                        UserType = "driver"
-                    };
-
-                    await _notification.NotifyDriverAsync(request.DriverId, driverPayload);
-                    _logger.LogInformation($"✓ Driver #{request.DriverId} notified about accepted ride #{ride.Id}");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, $"Failed to notify driver #{request.DriverId}");
-                }
-
-                // Notify other drivers
-                try
-                {
-                    await _notification.NotifyOtherDriversRideTaken(rideId, request.DriverId);
-                    _logger.LogInformation($"? Other drivers notified that ride #{rideId} is taken");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to notify other drivers");
-                }
-
-                return new RideAcceptedResponse
+                var response = new RideAcceptedResponse
                 {
                     Success = true,
                     RideId = ride.Id,
@@ -660,6 +586,57 @@ namespace TurboTaxi.Infrastructure.Services
                     DestinationLat = ride.EndLocation.Latitude,
                     DestinationLng = ride.EndLocation.Longitude
                 };
+
+                // SignalR in background — HTTP returns immediately (was blocking accept for seconds)
+                var userId = ride.UserId;
+                var acceptedDriverId = request.DriverId;
+                var acceptedRideId = ride.Id;
+                var pickupLat = ride.StartLocation.Latitude;
+                var pickupLng = ride.StartLocation.Longitude;
+                var destLat = ride.EndLocation.Latitude;
+                var destLng = ride.EndLocation.Longitude;
+
+                _backgroundNotifier.Run(async (sp, _) =>
+                {
+                    var notification = sp.GetRequiredService<IRideNotificationService>();
+
+                    await notification.NotifyUserAsync(userId, new
+                    {
+                        RideId = acceptedRideId,
+                        Status = "Approved",
+                        DriverId = acceptedDriverId,
+                        DriverLat = driverLat,
+                        DriverLng = driverLng,
+                        PickupLat = pickupLat,
+                        PickupLng = pickupLng,
+                        DestinationLat = destLat,
+                        DestinationLng = destLng,
+                        EncodedPolyline = approachPolyline,
+                        TripEncodedPolyline = tripPolyline,
+                        PolylinePhase = "Approach",
+                        DistanceKm = approachDistanceKm,
+                        DurationMinutes = approachDurationMin,
+                        Message = $"Driver is coming! ETA: {approachDurationMin} min"
+                    });
+
+                    await notification.NotifyDriverAsync(acceptedDriverId, new RideCompletionPayload
+                    {
+                        RideId = acceptedRideId,
+                        Status = "Approved",
+                        EncodedPolyline = approachPolyline,
+                        TripEncodedPolyline = tripPolyline,
+                        PolylinePhase = "Approach",
+                        DistanceKm = approachDistanceKm,
+                        DurationMinutes = approachDurationMin,
+                        ClearMap = false,
+                        Message = "You accepted this ride! Navigate to pickup location",
+                        UserType = "driver"
+                    });
+
+                    await notification.NotifyOtherDriversRideTaken(acceptedRideId, acceptedDriverId);
+                });
+
+                return response;
             }
             catch (DbUpdateException ex)
             {

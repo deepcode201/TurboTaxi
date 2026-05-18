@@ -81,14 +81,9 @@ namespace TurboTaxi.Realtime.Services
                 message.Attempts++;
                 var sent = await DispatchAsync(message);
 
-                if (sent)
+                if (!sent)
                 {
-                    _logger.LogInformation("[Queue] Message {MessageId} sent (group: {Group}, method: {Method}, attempt: {Attempt})",
-                        message.Id, message.HubGroup, message.MethodName, message.Attempts);
-                }
-                else
-                {
-                    _logger.LogWarning("[Queue] Message {MessageId} not dispatched (unknown group: {Group})",
+                    _logger.LogWarning("[Queue] Message {MessageId} not dispatched (group: {Group})",
                         message.Id, message.HubGroup);
                 }
 
@@ -112,7 +107,7 @@ namespace TurboTaxi.Realtime.Services
 
                 if (message.HubGroup == "all_drivers")
                 {
-                    await _driverHub.Clients.All.NewRideRequest(requestId, payload);
+                    await _driverHub.Clients.Group("all_drivers").NewRideRequest(requestId, payload);
                     return true;
                 }
 
@@ -132,7 +127,7 @@ namespace TurboTaxi.Realtime.Services
 
                 if (message.HubGroup == "all_drivers")
                 {
-                    await _driverHub.Clients.All.RideStatusUpdated(rideId, status, payload);
+                    await _driverHub.Clients.Group("all_drivers").RideStatusUpdated(rideId, status, payload);
                     return true;
                 }
 
