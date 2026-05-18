@@ -88,28 +88,30 @@ namespace TurboTaxi.Realtime.Services
         /// </summary>
         public async Task NotifyNearestDriversAsync(List<int> driverIds, object payload)
         {
-            if (driverIds == null || driverIds.Count == 0)
-            {
-                _logger.LogWarning("[SignalR] No driver IDs provided for notification");
-                return;
-            }
-
             try
             {
                 var rideId = ExtractRideId(payload);
-                _logger.LogInformation($"[SignalR] Sending new ride request {rideId} to {driverIds.Count} drivers");
+                driverIds ??= new List<int>();
 
-                foreach (var driverId in driverIds)
+                if (driverIds.Count == 0)
                 {
-                    if (driverId <= 0) continue;
+                    _logger.LogWarning("[SignalR] No matched driver IDs for ride {RideId}; broadcasting to all_drivers only", rideId);
+                }
+                else
+                {
+                    _logger.LogInformation("[SignalR] Sending new ride request {RideId} to {Count} drivers", rideId, driverIds.Count);
 
-                    var groupName = $"driver:{driverId}";
-                    await _messageQueueService.EnqueueAndSendAsync(groupName, "NewRideRequest", $"ride_{rideId}", payload);
+                    foreach (var driverId in driverIds)
+                    {
+                        if (driverId <= 0) continue;
+
+                        var groupName = $"driver:{driverId}";
+                        await _messageQueueService.EnqueueAndSendAsync(groupName, "NewRideRequest", $"ride_{rideId}", payload);
+                    }
                 }
 
-                // Fallback: drivers auto-join "all_drivers" on connect; many apps skip SubscribeDriver(driverId)
                 await _messageQueueService.EnqueueAndSendAsync("all_drivers", "NewRideRequest", $"ride_{rideId}", payload);
-                _logger.LogInformation("[SignalR] New ride {RideId} also broadcast to all_drivers", rideId);
+                _logger.LogInformation("[SignalR] New ride {RideId} broadcast to all_drivers", rideId);
             }
             catch (Exception ex)
             {

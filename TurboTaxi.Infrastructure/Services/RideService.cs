@@ -62,6 +62,30 @@ namespace TurboTaxi.Infrastructure.Services
                    || string.Equals(status, nameof(DriverStatus.BusySoon), StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsDriverLocationFresh(string? updatedStr, DateTime cutoffUtc)
+        {
+            if (string.IsNullOrWhiteSpace(updatedStr))
+                return true;
+
+            if (DateTimeOffset.TryParse(updatedStr, out var offset))
+            {
+                var upd = offset.UtcDateTime;
+                return upd > cutoffUtc;
+            }
+
+            if (DateTime.TryParse(updatedStr, null, System.Globalization.DateTimeStyles.RoundtripKind, out var updDt))
+            {
+                if (updDt.Kind == DateTimeKind.Unspecified)
+                    updDt = DateTime.SpecifyKind(updDt, DateTimeKind.Utc);
+                else if (updDt.Kind == DateTimeKind.Local)
+                    updDt = updDt.ToUniversalTime();
+
+                return updDt > cutoffUtc;
+            }
+
+            return false;
+        }
+
         private static int NormalizePageNumber(int pageNumber)
         {
             return pageNumber < 1 ? 1 : pageNumber;
@@ -234,8 +258,8 @@ namespace TurboTaxi.Infrastructure.Services
                         $"geo:drivers:{request.VehicleType.ToString().ToLowerInvariant()}",
                         request.PickupLng,
                         request.PickupLat,
-                        3.0);
-                    _logger.LogInformation($"   Found {nearbyDrivers.Length} drivers within 3km");
+                        5.0);
+                    _logger.LogInformation($"   Found {nearbyDrivers.Length} drivers within 5km");
                 }
                 catch (Exception ex)
                 {
@@ -245,7 +269,7 @@ namespace TurboTaxi.Infrastructure.Services
 
                 // Filter available drivers
                 var candidateIds = new List<int>();
-                var cutoff = DateTime.UtcNow.AddSeconds(-60);
+                var cutoff = DateTime.UtcNow.AddSeconds(-120);
 
                 _logger.LogInformation($"   Cutoff time for driver check: {cutoff:O} (UTC now: {DateTime.UtcNow:O})");
 
@@ -269,33 +293,15 @@ namespace TurboTaxi.Infrastructure.Services
                         var hasStatus = d.TryGetValue("status", out var status);
                         var hasUpdatedAt = d.TryGetValue("updatedAt", out var updatedStr);
 
-                        if (!hasStatus)
-                        {
-                            _logger.LogWarning($"   ⚠️ Driver #{did} missing 'status' field");
-                            continue;
-                        }
-
-                        if (!IsDriverAvailableForNewRide(status))
+                        if (hasStatus && !IsDriverAvailableForNewRide(status))
                         {
                             _logger.LogInformation($"   ⏸️ Driver #{did} not available (status='{status}')");
                             continue;
                         }
 
-                        if (!hasUpdatedAt)
+                        if (hasUpdatedAt && !IsDriverLocationFresh(updatedStr, cutoff))
                         {
-                            _logger.LogWarning($"   ⚠️ Driver #{did} missing 'updatedAt' field");
-                            continue;
-                        }
-
-                        if (!DateTime.TryParse(updatedStr, out var upd))
-                        {
-                            _logger.LogWarning($"   ⚠️ Driver #{did} invalid updatedAt format: '{updatedStr}'");
-                            continue;
-                        }
-
-                        if (upd <= cutoff)
-                        {
-                            _logger.LogInformation($"   ⏱️ Driver #{did} stale (updatedAt={upd:O} ≤ {cutoff:O})");
+                            _logger.LogInformation($"   ⏱️ Driver #{did} stale (updatedAt='{updatedStr}', cutoff={cutoff:O})");
                             continue;
                         }
 
@@ -308,12 +314,21 @@ namespace TurboTaxi.Infrastructure.Services
                     }
                 }
 
-                decimal estimatedFare = await _fareCalculator.CalculateEstimatedFareAsync(
-                    request.VehicleType.ToString(),
-                    distanceKm,
-                    durationMin,
-                    DateTime.UtcNow,
-                    "Baku");
+                decimal estimatedFare;
+                try
+                {
+                    estimatedFare = await _fareCalculator.CalculateEstimatedFareAsync(
+                        request.VehicleType.ToString(),
+                        distanceKm,
+                        durationMin,
+                        DateTime.UtcNow,
+                        "Baku");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Fare calculation failed for ride #{RideId}, using default", ride.Id);
+                    estimatedFare = 10m;
+                }
 
                 ride.EstimatedFare = estimatedFare;
                 await _db.SaveChangesAsync(ct);
@@ -340,40 +355,39 @@ namespace TurboTaxi.Infrastructure.Services
                     _logger.LogError(ex, "Promo preview failed for ride #{RideId}; notifying drivers anyway", ride.Id);
                 }
 
-                _logger.LogInformation($"?? Notifying {candidateIds.Count} available drivers");
+                _logger.LogInformation($"?? Notifying {candidateIds.Count} matched drivers (+ all_drivers broadcast)");
 
-                if (candidateIds.Count > 0)
+                try
                 {
-                    try
+                    var driverPayload = new NewRideRequestPayload
                     {
-                        var driverPayload = new NewRideRequestPayload
-                        {
-                            RideId = ride.Id,
-                            VehicleType = request.VehicleType.ToString(),
-                            PickupLat = request.PickupLat,
-                            PickupLng = request.PickupLng,
-                            DestinationLat = request.DestinationLat ?? 0,
-                            DestinationLng = request.DestinationLng ?? 0,
-                            EncodedPolyline = polyline,
-                            EstimatedFare = fareForUser,
-                            DistanceKm = distanceKm ?? 0,
-                            DurationMinutes = durationMin ?? 0
-                        };
-                        await _notification.NotifyNearestDriversAsync(candidateIds, driverPayload);
-                        _logger.LogInformation(
-                            "? Notified {Count} drivers with ride #{RideId} (fare: {Fare:F2} AZN)",
-                            candidateIds.Count, ride.Id, fareForUser);
-                    }
-                    catch (Exception ex)
+                        RideId = ride.Id,
+                        VehicleType = request.VehicleType.ToString(),
+                        PickupLat = request.PickupLat,
+                        PickupLng = request.PickupLng,
+                        DestinationLat = request.DestinationLat ?? 0,
+                        DestinationLng = request.DestinationLng ?? 0,
+                        EncodedPolyline = polyline,
+                        EstimatedFare = fareForUser,
+                        DistanceKm = distanceKm,
+                        DurationMinutes = durationMin
+                    };
+
+                    await _notification.NotifyNearestDriversAsync(candidateIds, driverPayload);
+                    _logger.LogInformation(
+                        "? Ride #{RideId} notification sent ({Count} matched drivers, fare: {Fare:F2} AZN)",
+                        ride.Id, candidateIds.Count, fareForUser);
+
+                    if (candidateIds.Count == 0)
                     {
-                        _logger.LogError(ex, "Failed to notify drivers for ride #{RideId}", ride.Id);
+                        _logger.LogWarning(
+                            "No drivers matched for ride #{RideId} (vehicle={VehicleType}, geo count={GeoCount})",
+                            ride.Id, request.VehicleType, nearbyDrivers.Length);
                     }
                 }
-                else
+                catch (Exception ex)
                 {
-                    _logger.LogWarning(
-                        "No drivers matched for ride #{RideId} (vehicle={VehicleType}, geo count={GeoCount})",
-                        ride.Id, request.VehicleType, nearbyDrivers.Length);
+                    _logger.LogError(ex, "Failed to notify drivers for ride #{RideId}", ride.Id);
                 }
 
                 // Notify user

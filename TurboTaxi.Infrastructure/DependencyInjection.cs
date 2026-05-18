@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using TurboTaxi.Application.Interfaces;
+using TurboTaxi.Infrastructure.BackgroundServices;
 using TurboTaxi.Infrastructure.Data;
 using TurboTaxi.Infrastructure.Services;
 
@@ -50,7 +51,8 @@ namespace TurboTaxi.Infrastructure
             services.AddScoped<IRideUserLookupService, RideUserLookupService>();
             services.AddScoped<IRideChatAccess, RideChatAccessService>();
             services.AddScoped<IChatService, ChatService>();
-            
+            services.AddHostedService<PendingRideRetryService>();
+
             return services;
         }
     }

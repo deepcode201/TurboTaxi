@@ -47,7 +47,7 @@ namespace TurboTaxi.Infrastructure.Services
                     driverStatus = DriverStatus.Free;
                 }
 
-                if (driverStatus is not DriverStatus.Free and not DriverStatus.BusySoon)
+                if (driverStatus is DriverStatus.Offline or DriverStatus.Busy)
                 {
                     _logger.LogInformation($"Driver #{driverId} status is {driverStatus}, skipping pending ride search.");
                     return;
