@@ -118,6 +118,23 @@ namespace TurboTaxi.Realtime.Services
                 }
             }
 
+            if (string.Equals(message.MethodName, "RideRequestRemoved", StringComparison.OrdinalIgnoreCase)
+                && message.Args.Length >= 2)
+            {
+                var rideId = Convert.ToInt32(message.Args[0]);
+                var payload = message.Args[1];
+
+                if (message.HubGroup == "all_drivers"
+                    || message.HubGroup.StartsWith("driver:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var target = message.HubGroup == "all_drivers"
+                        ? _driverHub.Clients.Group("all_drivers")
+                        : _driverHub.Clients.Group(message.HubGroup);
+                    await target.RideRequestRemoved(rideId, payload);
+                    return true;
+                }
+            }
+
             if (string.Equals(message.MethodName, "RideStatusUpdated", StringComparison.OrdinalIgnoreCase)
                 && message.Args.Length >= 3)
             {

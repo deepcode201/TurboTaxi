@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using TurboTaxi.Application.Interfaces;
+using TurboTaxi.Models.Rides;
 
 namespace TurboTaxi.Realtime.Services
 {
@@ -119,6 +120,25 @@ namespace TurboTaxi.Realtime.Services
             }
         }
 
+        private async Task BroadcastRideDismissedToDriversAsync(int rideId, string reason, string message)
+        {
+            var payload = new RideDismissedPayload
+            {
+                RideId = rideId,
+                Reason = reason,
+                Status = reason == "Taken" ? "Taken" : "Canceled",
+                Message = message
+            };
+
+            // Primary event for driver app — remove card from pending list
+            await _messageQueueService.EnqueueAndSendAsync(
+                "all_drivers", "RideRequestRemoved", rideId, payload);
+
+            // Legacy — apps listening to RideStatusUpdated still work
+            await _messageQueueService.EnqueueAndSendAsync(
+                "all_drivers", "RideStatusUpdated", rideId, payload.Status, payload);
+        }
+
         /// <summary>
         /// Broadcast ride cancellation to all connected drivers.
         /// </summary>
@@ -126,18 +146,15 @@ namespace TurboTaxi.Realtime.Services
         {
             try
             {
-                _logger.LogInformation($"[SignalR] Broadcasting ride {rideId} cancellation to all drivers");
-
-                await _messageQueueService.EnqueueAndSendAsync("all_drivers", "RideStatusUpdated", rideId, "RideCanceled", new
-                {
-                    RideId = rideId,
-                    Status = "Canceled",
-                    Message = "This ride has been canceled by the user"
-                });
+                _logger.LogInformation("[SignalR] Ride {RideId} canceled — dismissing for all drivers", rideId);
+                await BroadcastRideDismissedToDriversAsync(
+                    rideId,
+                    "Canceled",
+                    "This ride has been canceled by the user");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"[SignalR] Error notifying drivers about ride {rideId} cancellation");
+                _logger.LogError(ex, "[SignalR] Error notifying drivers about ride {RideId} cancellation", rideId);
             }
         }
 
@@ -148,19 +165,18 @@ namespace TurboTaxi.Realtime.Services
         {
             try
             {
-                _logger.LogInformation($"[SignalR] Broadcasting ride {rideId} taken by driver {acceptedDriverId}");
+                _logger.LogInformation(
+                    "[SignalR] Ride {RideId} taken by driver {DriverId} — dismissing for other drivers",
+                    rideId, acceptedDriverId);
 
-                await _messageQueueService.EnqueueAndSendAsync("all_drivers", "RideStatusUpdated", rideId, "RideTaken", new
-                {
-                    RideId = rideId,
-                    Status = "Taken",
-                    AcceptedByDriverId = acceptedDriverId,
-                    Message = "This ride was accepted by another driver"
-                });
+                await BroadcastRideDismissedToDriversAsync(
+                    rideId,
+                    "Taken",
+                    "This ride was accepted by another driver");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"[SignalR] Error notifying drivers about ride {rideId} being taken");
+                _logger.LogError(ex, "[SignalR] Error notifying drivers about ride {RideId} being taken", rideId);
             }
         }
     }
