@@ -1038,15 +1038,11 @@ namespace TurboTaxi.Infrastructure.Services
                 _logger.LogWarning(ex, "Failed to clean Redis keys for ride #{RideId}", rideId);
             }
 
-            var canceledRideId = ride.Id;
-            _backgroundNotifier.Run(async (sp, _) =>
+            // Pending sifariş: bütün sürücülərə dərhal sil (arxa plan Task.Run bəzən gecikir / itir — UI-da kart qalır)
+            if (prevStatus == RideStatus.Pending)
             {
-                if (prevStatus == RideStatus.Pending)
-                {
-                    var notification = sp.GetRequiredService<IRideNotificationService>();
-                    await notification.NotifyAllDriversRideCanceled(canceledRideId);
-                }
-            });
+                await _notification.NotifyAllDriversRideCanceled(ride.Id);
+            }
 
             _logger.LogInformation("Ride #{RideId} canceled by user #{UserId}", rideId, request.UserId);
 
