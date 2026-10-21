@@ -19,7 +19,8 @@ namespace TurboTaxi.Application.Interfaces
             double? distanceKm,
             int? durationMinutes,
             DateTime? rideStartTime = null,
-            string? city = "Baku");
+            string? city = "Baku",
+            CancellationToken ct = default);
 
         /// <summary>
         /// Calculate final fare after ride completion (with actual distance/duration).

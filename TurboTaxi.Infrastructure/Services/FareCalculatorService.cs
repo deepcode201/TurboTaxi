@@ -28,7 +28,8 @@ namespace TurboTaxi.Infrastructure.Services
             double? distanceKm,
             int? durationMinutes,
             DateTime? rideStartTime = null,
-            string? city = "Baku")
+            string? city = "Baku",
+            CancellationToken ct = default)
         {
             try
             {
@@ -53,14 +54,14 @@ namespace TurboTaxi.Infrastructure.Services
                 // Get tariff for vehicle type and city
                 var tariff = await _db.Tariffs
                     .AsNoTracking()
-                    .FirstOrDefaultAsync(t => t.VehicleType == parsedVehicleType && t.City == city && t.IsActive);
+                    .FirstOrDefaultAsync(t => t.VehicleType == parsedVehicleType && t.City == city && t.IsActive, ct);
 
                 // Fallback to any active tariff for this vehicle type if city-specific not found
                 if (tariff == null)
                 {
                     tariff = await _db.Tariffs
                         .AsNoTracking()
-                        .FirstOrDefaultAsync(t => t.VehicleType == parsedVehicleType && t.IsActive);
+                        .FirstOrDefaultAsync(t => t.VehicleType == parsedVehicleType && t.IsActive, ct);
                 }
 
                 if (tariff == null)

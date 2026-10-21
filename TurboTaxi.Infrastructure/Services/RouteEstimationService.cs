@@ -82,7 +82,7 @@ namespace TurboTaxi.Infrastructure.Services
             if (result.Success)
             {
                 _logger.LogInformation("[1/2] Succeeded");
-                await ApplyPriceAsync(result, request);
+                await ApplyPriceAsync(result, request, ct);
                 return result;
             }
             _logger.LogWarning("[1/2] Failed: {Msg}", result.Message);
@@ -93,7 +93,7 @@ namespace TurboTaxi.Infrastructure.Services
             if (result.Success)
             {
                 _logger.LogInformation("[2/2] Succeeded");
-                await ApplyPriceAsync(result, request);
+                await ApplyPriceAsync(result, request, ct);
                 return result;
             }
             _logger.LogError("[2/2] Failed: {Msg}", result.Message);
@@ -104,7 +104,7 @@ namespace TurboTaxi.Infrastructure.Services
             if (result.Success)
             {
                 _logger.LogInformation("[3/3] Succeeded");
-                await ApplyPriceAsync(result, request);
+                await ApplyPriceAsync(result, request, ct);
                 return result;
             }
 
@@ -432,17 +432,30 @@ namespace TurboTaxi.Infrastructure.Services
 
         private async Task ApplyPriceAsync(
             RouteEstimateResponse response,
-            RouteEstimateRequest request)
+            RouteEstimateRequest request,
+            CancellationToken ct)
         {
             if (response.Data == null)
                 return;
+
+            // SQL is on a remote host. A blocked port used to sit on the 60s
+            // connect timeout, then EF retried, and the promo query threw.
+            using var priceCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            priceCts.CancelAfter(TimeSpan.FromSeconds(8));
 
             var originalFare = await _fareCalculator.CalculateEstimatedFareAsync(
                 request.VehicleType.ToString(),
                 response.Data.DistanceKm,
                 response.Data.DurationMinutes,
                 DateTime.UtcNow,
-                "Baku");
+                "Baku",
+                priceCts.Token);
+
+            if (priceCts.IsCancellationRequested && !ct.IsCancellationRequested)
+            {
+                _logger.LogWarning("Tariff database did not respond within 8s. Using the minimum fare.");
+                response.Message += " Tariff database was unreachable, so the minimum fare was used.";
+            }
 
             response.Data.Price = new RoutePriceDto
             {
@@ -452,22 +465,30 @@ namespace TurboTaxi.Infrastructure.Services
                 Currency = "AZN"
             };
 
-            if (request.UserId.HasValue && request.UserId.Value > 0)
+            if (request.UserId.HasValue && request.UserId.Value > 0 && !priceCts.IsCancellationRequested)
             {
-                var promo = await _promoCodeService.ApplyActivePromoAsync(
-                    request.UserId.Value,
-                    originalFare,
-                    consumeUsage: false);
-
-                if (promo.Applied)
+                try
                 {
-                    response.Data.Price = new RoutePriceDto
+                    var promo = await _promoCodeService.ApplyActivePromoAsync(
+                        request.UserId.Value,
+                        originalFare,
+                        consumeUsage: false,
+                        priceCts.Token);
+
+                    if (promo.Applied)
                     {
-                        Original = (double)promo.OriginalFare,
-                        Discount = (double)promo.DiscountAmount,
-                        Final = (double)promo.FinalFare,
-                        Currency = "AZN"
-                    };
+                        response.Data.Price = new RoutePriceDto
+                        {
+                            Original = (double)promo.OriginalFare,
+                            Discount = (double)promo.DiscountAmount,
+                            Final = (double)promo.FinalFare,
+                            Currency = "AZN"
+                        };
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                {
+                    _logger.LogWarning(ex, "Promo lookup skipped; route estimate will use the base fare.");
                 }
             }
 
