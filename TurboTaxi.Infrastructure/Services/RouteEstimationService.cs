@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.IO.Compression;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using TurboTaxi.Application.Interfaces;
 using TurboTaxi.Models.Routes;
@@ -150,14 +152,14 @@ namespace TurboTaxi.Infrastructure.Services
 
                 if (!resp.IsSuccessStatusCode)
                 {
-                    var err = await resp.Content.ReadAsStringAsync(ct);
+                    var err = await ReadMaybeCompressedAsync(resp, ct);
                     _logger.LogError(
                         "Google [{Pref}] HTTP {Code}: {Body}",
                         routingPreference, (int)resp.StatusCode, err);
                     return Fail($"Google HTTP {(int)resp.StatusCode}: {err}");
                 }
 
-                var json = await resp.Content.ReadAsStringAsync(ct);
+                var json = await ReadMaybeCompressedAsync(resp, ct);
                 using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(json));
                 var data = await JsonSerializer.DeserializeAsync<GoogleComputeRoutesResponse>(
                     stream,
@@ -239,22 +241,12 @@ namespace TurboTaxi.Infrastructure.Services
 
                     using var req = new HttpRequestMessage(HttpMethod.Get, url);
 
-                    // ✅ Add User-Agent header (helps with rate limiting)
-                    req.Headers.Add("User-Agent", 
+                    req.Headers.TryAddWithoutValidation("User-Agent",
                         "TurboTaxi/1.0 (+http://turbotaxi.az)");
-                    req.Headers.Add("Accept", "application/json");
+                    req.Headers.TryAddWithoutValidation("Accept", "application/json");
 
                     using var resp = await _http.SendAsync(req, ct);
-
-                    // Handle both compressed and uncompressed responses
-                    string json;
-                    using (var contentStream = await resp.Content.ReadAsStreamAsync(ct))
-                    {
-                        using (var sr = new System.IO.StreamReader(contentStream))
-                        {
-                            json = await sr.ReadToEndAsync();
-                        }
-                    }
+                    var json = await ReadMaybeCompressedAsync(resp, ct);
 
                     if (!resp.IsSuccessStatusCode)
                     {
@@ -373,6 +365,55 @@ namespace TurboTaxi.Infrastructure.Services
         }
 
         // ── Helpers ──────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// OSRM (nginx) gzips the body when Accept-Encoding is advertised.
+        /// Parsing those bytes as JSON throws "'0x1F' is an invalid start of a value".
+        /// </summary>
+        private static async Task<string> ReadMaybeCompressedAsync(
+            HttpResponseMessage response,
+            CancellationToken ct)
+        {
+            var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+            if (bytes.Length == 0)
+                return string.Empty;
+
+            if (StartsWithJson(bytes))
+                return Encoding.UTF8.GetString(bytes);
+
+            Stream stream;
+            if (IsGzip(bytes))
+                stream = new GZipStream(new MemoryStream(bytes), CompressionMode.Decompress);
+            else if (HasEncoding(response, "br"))
+                stream = new BrotliStream(new MemoryStream(bytes), CompressionMode.Decompress);
+            else if (HasEncoding(response, "deflate"))
+                stream = new DeflateStream(new MemoryStream(bytes), CompressionMode.Decompress);
+            else
+                return Encoding.UTF8.GetString(bytes);
+
+            using (stream)
+            using (var reader = new StreamReader(stream, Encoding.UTF8))
+                return await reader.ReadToEndAsync(ct);
+        }
+
+        private static bool IsGzip(ReadOnlySpan<byte> bytes) =>
+            bytes.Length >= 2 && bytes[0] == 0x1F && bytes[1] == 0x8B;
+
+        private static bool StartsWithJson(ReadOnlySpan<byte> bytes)
+        {
+            foreach (var b in bytes)
+            {
+                if (b is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n')
+                    continue;
+                return b is (byte)'{' or (byte)'[';
+            }
+
+            return false;
+        }
+
+        private static bool HasEncoding(HttpResponseMessage response, string encoding) =>
+            response.Content.Headers.ContentEncoding
+                .Any(value => value.Contains(encoding, StringComparison.OrdinalIgnoreCase));
 
         private static object Loc(Coordinate c) =>
             new { location = new { latLng = new { latitude = c.Latitude, longitude = c.Longitude } } };

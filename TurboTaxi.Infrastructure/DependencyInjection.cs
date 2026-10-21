@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
@@ -33,7 +34,12 @@ namespace TurboTaxi.Infrastructure
                 );
             });
 
-            services.AddHttpClient<IRouteEstimationService, RouteEstimationService>();
+            services.AddHttpClient<IRouteEstimationService, RouteEstimationService>()
+                .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+                {
+                    AutomaticDecompression = DecompressionMethods.All,
+                    PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+                });
 
             // Add memory cache for deduplication
             services.AddMemoryCache();
