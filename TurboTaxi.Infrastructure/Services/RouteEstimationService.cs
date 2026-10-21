@@ -243,10 +243,18 @@ namespace TurboTaxi.Infrastructure.Services
                     req.Headers.Add("User-Agent", 
                         "TurboTaxi/1.0 (+http://turbotaxi.az)");
                     req.Headers.Add("Accept", "application/json");
-                    req.Headers.Add("Accept-Encoding", "gzip, deflate");
 
                     using var resp = await _http.SendAsync(req, ct);
-                    var json = await resp.Content.ReadAsStringAsync(ct);
+
+                    // Handle both compressed and uncompressed responses
+                    string json;
+                    using (var contentStream = await resp.Content.ReadAsStreamAsync(ct))
+                    {
+                        using (var sr = new System.IO.StreamReader(contentStream))
+                        {
+                            json = await sr.ReadToEndAsync();
+                        }
+                    }
 
                     if (!resp.IsSuccessStatusCode)
                     {
