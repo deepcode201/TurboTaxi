@@ -210,9 +210,16 @@ namespace TurboTaxi.Infrastructure.Services
             RouteEstimateRequest request,
             CancellationToken ct)
         {
-            var baseUrl = _config["Routing:OsrmBaseUrl"]?.Trim();
-            if (string.IsNullOrWhiteSpace(baseUrl))
-                baseUrl = "http://router.project-osrm.org";
+            var baseUrl = _config["Routing:OsrmBaseUrl"]?.Trim() 
+                ?? "http://router.project-osrm.org";
+
+            var retryCount = int.TryParse(
+                _config["Routing:OsrmRetryCount"], 
+                out var rc) ? rc : 3;
+
+            var retryDelayMs = int.TryParse(
+                _config["Routing:OsrmRetryDelayMs"], 
+                out var rd) ? rd : 1000;
 
             var url =
                 $"{baseUrl.TrimEnd('/')}/route/v1/driving/" +
@@ -222,72 +229,139 @@ namespace TurboTaxi.Infrastructure.Services
                 $"{request.Destination.Latitude.ToString(System.Globalization.CultureInfo.InvariantCulture)}" +
                 "?overview=full&geometries=polyline";
 
-            try
+            for (int attempt = 1; attempt <= retryCount; attempt++)
             {
-                using var resp = await _http.GetAsync(url, ct);
-                var json = await resp.Content.ReadAsStringAsync(ct);
-
-                if (!resp.IsSuccessStatusCode)
+                try
                 {
-                    _logger.LogError("OSRM HTTP {Code}: {Body}", (int)resp.StatusCode, json);
-                    return Fail($"OSRM HTTP {(int)resp.StatusCode}");
-                }
+                    _logger.LogInformation(
+                        "[OSRM] Attempt {Attempt}/{Max} to {Url}", 
+                        attempt, retryCount, baseUrl);
 
-                using var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-                if (!root.TryGetProperty("routes", out var routes) || routes.GetArrayLength() == 0)
-                {
-                    _logger.LogWarning("OSRM returned no routes");
-                    return Fail("OSRM returned no route data.");
-                }
+                    using var req = new HttpRequestMessage(HttpMethod.Get, url);
 
-                var route = routes[0];
-                if (!route.TryGetProperty("geometry", out var geometryEl))
-                    return Fail("OSRM route missing geometry.");
+                    // ✅ Add User-Agent header (helps with rate limiting)
+                    req.Headers.Add("User-Agent", 
+                        "TurboTaxi/1.0 (+http://turbotaxi.az)");
+                    req.Headers.Add("Accept", "application/json");
+                    req.Headers.Add("Accept-Encoding", "gzip, deflate");
 
-                var encoded = geometryEl.GetString();
-                if (string.IsNullOrWhiteSpace(encoded))
-                    return Fail("OSRM route geometry is empty.");
+                    using var resp = await _http.SendAsync(req, ct);
+                    var json = await resp.Content.ReadAsStringAsync(ct);
 
-                var distanceMeters = route.TryGetProperty("distance", out var distEl)
-                    ? distEl.GetDouble()
-                    : 0;
-                var durationSeconds = route.TryGetProperty("duration", out var durEl)
-                    ? durEl.GetDouble()
-                    : 0;
-
-                var distanceKm = Math.Round(distanceMeters / 1000.0, 2);
-                var durationMinutes = (int)Math.Max(1, Math.Round(durationSeconds / 60.0));
-
-                _logger.LogInformation(
-                    "OSRM -> {Dist}km / {Min}min | polyline:{Len}ch",
-                    distanceKm,
-                    durationMinutes,
-                    encoded.Length);
-
-                return new RouteEstimateResponse
-                {
-                    Success = true,
-                    Message = "Route via OSRM",
-                    Data = new RouteEstimateData
+                    if (!resp.IsSuccessStatusCode)
                     {
-                        DistanceKm = distanceKm,
-                        DurationMinutes = durationMinutes,
-                        EncodedPolyline = encoded,
-                        Source = "OSRM"
+                        _logger.LogWarning(
+                            "[OSRM] HTTP {Code} on attempt {Attempt}/{Max}: {Body}", 
+                            (int)resp.StatusCode, attempt, retryCount, json);
+
+                        // Retry on 403 (Forbidden) or 429 (Rate Limited)
+                        if ((int)resp.StatusCode == 403 || (int)resp.StatusCode == 429)
+                        {
+                            if (attempt < retryCount)
+                            {
+                                var delay = retryDelayMs * attempt;
+                                _logger.LogInformation(
+                                    "[OSRM] Rate limited/forbidden, waiting {Ms}ms before retry #{Next}", 
+                                    delay, attempt + 1);
+
+                                await Task.Delay(delay, ct);
+                                continue; // Retry
+                            }
+                        }
+
+                        // Final attempt or non-retryable error
+                        if (attempt == retryCount)
+                        {
+                            return Fail(
+                                $"OSRM HTTP {(int)resp.StatusCode} " +
+                                $"after {retryCount} attempts");
+                        }
+                        continue;
                     }
-                };
+
+                    // ✅ Success - parse response
+                    using var doc = JsonDocument.Parse(json);
+                    var root = doc.RootElement;
+
+                    if (!root.TryGetProperty("routes", out var routes) || 
+                        routes.GetArrayLength() == 0)
+                    {
+                        _logger.LogWarning("[OSRM] No routes returned");
+                        return Fail("OSRM returned no route data.");
+                    }
+
+                    var route = routes[0];
+                    if (!route.TryGetProperty("geometry", out var geometryEl))
+                        return Fail("OSRM route missing geometry.");
+
+                    var encoded = geometryEl.GetString();
+                    if (string.IsNullOrWhiteSpace(encoded))
+                        return Fail("OSRM route geometry is empty.");
+
+                    var distanceMeters = route.TryGetProperty("distance", 
+                        out var distEl) ? distEl.GetDouble() : 0;
+                    var durationSeconds = route.TryGetProperty("duration", 
+                        out var durEl) ? durEl.GetDouble() : 0;
+
+                    var distanceKm = Math.Round(distanceMeters / 1000.0, 2);
+                    var durationMinutes = (int)Math.Max(1, 
+                        Math.Round(durationSeconds / 60.0));
+
+                    _logger.LogInformation(
+                        "[OSRM] ✅ Success on attempt {Attempt}: {Dist}km / {Min}min | polyline:{Len}ch",
+                        attempt,
+                        distanceKm,
+                        durationMinutes,
+                        encoded.Length);
+
+                    return new RouteEstimateResponse
+                    {
+                        Success = true,
+                        Message = "Route via OSRM",
+                        Data = new RouteEstimateData
+                        {
+                            DistanceKm = distanceKm,
+                            DurationMinutes = durationMinutes,
+                            EncodedPolyline = encoded,
+                            Source = "OSRM"
+                        }
+                    };
+                }
+                catch (TaskCanceledException)
+                {
+                    _logger.LogError(
+                        "[OSRM] Timeout on attempt {Attempt}/{Max}", 
+                        attempt, retryCount);
+
+                    if (attempt == retryCount)
+                        return Fail("OSRM request timeout.");
+
+                    var delay = retryDelayMs * attempt;
+                    _logger.LogInformation(
+                        "[OSRM] Timeout, waiting {Ms}ms before retry #{Next}", 
+                        delay, attempt + 1);
+
+                    await Task.Delay(delay, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, 
+                        "[OSRM] Exception on attempt {Attempt}/{Max}", 
+                        attempt, retryCount);
+
+                    if (attempt == retryCount)
+                        return Fail($"OSRM exception: {ex.Message}");
+
+                    var delay = retryDelayMs * attempt;
+                    _logger.LogInformation(
+                        "[OSRM] Exception, waiting {Ms}ms before retry #{Next}", 
+                        delay, attempt + 1);
+
+                    await Task.Delay(delay, ct);
+                }
             }
-            catch (TaskCanceledException)
-            {
-                _logger.LogError("OSRM request timed out.");
-                return Fail("OSRM request timed out.");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "OSRM exception");
-                return Fail($"OSRM exception: {ex.Message}");
-            }
+
+            return Fail("OSRM failed after all retries.");
         }
 
         // ── Helpers ──────────────────────────────────────────────────────────
